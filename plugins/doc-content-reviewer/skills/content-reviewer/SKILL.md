@@ -135,11 +135,17 @@ silently vanishing from the report.
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.aggregate \
   --accuracy <accuracy.json> --style <style.json> --reference <reference.json> --clarity <clarity.json> \
-  --template templates/review-report.md.tmpl --out <merged.json>
+  --template templates/review-report.md.tmpl --out <merged.json> \
+  --repo <hub-doc|traefik> --scope <the-path-or-topic-from-step-1> \
+  --date <today's-date> --mode <"full review"|"targeted check"> \
+  --layers-run <comma-separated list of layers actually run, e.g. "accuracy, style">
 ```
 (Any layer that didn't run for this mode — e.g. style/clarity skipped in a
 targeted check — simply omits its flag; `aggregate.py` treats a missing
-layer as no findings from that layer.)
+layer as no findings from that layer. The `--repo`/`--scope`/`--date`/
+`--mode`/`--layers-run` flags fill the report template's top-level fields —
+`blocking_count`/`suggestion_count`/`auto_fixable_count` are computed
+automatically from the findings and need no flag.)
 
 Show the user the full rendered report (`templates/review-report.md.tmpl`).
 Every finding keeps its layer badge and reasoning visible — this is the
