@@ -1,0 +1,5 @@
+{
+  "name": "doc-content-reviewer",
+  "description": "Layered content review (accuracy, style, reference, clarity) for existing traefik-hub and traefik/traefik documentation, with confidence-gated auto-fix and optional PR.",
+  "version": "0.1.0"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "doc-content-reviewer-workspace",
+  "owner": {
+    "name": "Traefik Labs"
+  },
+  "plugins": [
+    {
+      "name": "doc-content-reviewer",
+      "source": "./plugins/doc-content-reviewer",
+      "description": "Layered content review (accuracy, style, reference, clarity) for existing traefik-hub and traefik/traefik documentation, with confidence-gated auto-fix and optional PR."
+    }
+  ]
+}
