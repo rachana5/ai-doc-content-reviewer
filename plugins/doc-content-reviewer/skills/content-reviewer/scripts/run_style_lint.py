@@ -60,19 +60,25 @@ def run(target_files: list[Path], repo_root: Path) -> dict:
 
     if tools["vale"]:
         for file in target_files:
-            result = subprocess.run(
-                ["vale", "--output=JSON", str(file)], capture_output=True, text=True,
-            )
-            if result.stdout.strip():
-                findings.extend(parse_vale_json(result.stdout, file=str(file)))
+            try:
+                result = subprocess.run(
+                    ["vale", "--output=JSON", str(file)], capture_output=True, text=True,
+                )
+                if result.stdout.strip():
+                    findings.extend(parse_vale_json(result.stdout, file=str(file)))
+            except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
+                print(f"[run_style_lint] WARNING: vale failed on {file} ({exc!r}) — skipping this file for vale, continuing")
 
     if tools["alex"]:
         for file in target_files:
-            result = subprocess.run(
-                ["alex", "--json", str(file)], capture_output=True, text=True,
-            )
-            if result.stdout.strip():
-                findings.extend(parse_alex_json(result.stdout, file=str(file)))
+            try:
+                result = subprocess.run(
+                    ["alex", "--json", str(file)], capture_output=True, text=True,
+                )
+                if result.stdout.strip():
+                    findings.extend(parse_alex_json(result.stdout, file=str(file)))
+            except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
+                print(f"[run_style_lint] WARNING: alex failed on {file} ({exc!r}) — skipping this file for alex, continuing")
 
     return {"findings": findings, "vale_ran": tools["vale"], "alex_ran": tools["alex"]}
 
