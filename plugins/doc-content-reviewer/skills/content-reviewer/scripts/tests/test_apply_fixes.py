@@ -83,6 +83,25 @@ def test_stage_all_skips_non_auto_fixable_findings(tmp_path):
     assert diff == ""
 
 
+def test_stage_all_skips_findings_with_low_confidence_even_if_auto_fixable_true(tmp_path):
+    # Isolates the confidence check from the auto_fixable check.
+    # A finding with auto_fixable=True explicitly set but confidence below
+    # AUTO_FIX_THRESHOLD must still be excluded from staging. This verifies
+    # that _fixable() checks BOTH conditions independently — not just one or
+    # the other — by constructing a finding where auto_fixable is explicitly
+    # True but confidence is below the threshold.
+    doc = tmp_path / "foo.md"
+    doc.write_text("Some text.\n")
+    finding = make_finding(
+        layer="clarity", file=str(doc), line=1, quote="Some text.",
+        reasoning="r", suggested_fix="Some clearer text.",
+        severity="suggestion", confidence=0.5,  # below AUTO_FIX_THRESHOLD (0.8)
+        auto_fixable=True,  # explicitly set, not derived
+    )
+    diff = apply_fixes.stage_all([finding], tmp_path)
+    assert diff == ""
+
+
 def test_apply_confirmed_writes_files_and_returns_paths(tmp_path):
     doc = tmp_path / "foo.md"
     doc.write_text("The default value for maxRetries is 3.\n")
