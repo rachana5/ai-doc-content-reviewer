@@ -147,9 +147,13 @@ layer as no findings from that layer. The `--repo`/`--scope`/`--date`/
 `blocking_count`/`suggestion_count`/`auto_fixable_count` are computed
 automatically from the findings and need no flag.)
 
-Show the user the full rendered report (`templates/review-report.md.tmpl`).
-Every finding keeps its layer badge and reasoning visible — this is the
-whole point of running layers separately instead of one blended pass.
+Show the user the full rendered report (`templates/review-report.md.tmpl`),
+but lead with a one-line summary before the numbered findings — e.g.
+"Found 12 issues across 5 files: 3 blocking, 9 suggestions, 7
+auto-fixable." — so there's an at-a-glance read before the detail, whether
+this is you running it or a teammate seeing it for the first time. Every
+finding keeps its layer badge and reasoning visible below that — this is
+the whole point of running layers separately instead of one blended pass.
 
 ## Step 5: Stage fixes, show diff, wait for confirmation
 
@@ -158,13 +162,28 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.apply_fixes --findings <merg
 ```
 
 Without `--apply`, this **only prints a diff and never writes to disk**.
-Show the full diff to the user, alongside the report's `#{{id}}`-numbered
-findings from Step 4. Ask which findings to apply: all auto-fixable, a
-subset by id (e.g. "apply 2 and 4"), or none. If the user approves only a
-subset, write `<approved.json>` as the entries from `<merged.json>` whose
-`id` is in the approved set — the id from `aggregate()`'s output is exactly
-what makes this an unambiguous filter instead of a guess at which finding
-"the third one in the diff" refers to. Only then re-run with `--apply`:
+
+**Don't paste the raw diff as one flat blob.** Group the review by file: for
+each file with at least one staged fix, show a one-line summary per
+finding (layer + reasoning — already in the Step 4 report) immediately
+followed by that file's own diff hunk, then move to the next file. The
+reasoning explains the change; the diff just confirms it matches — this is
+what keeps the review scannable instead of a wall of text, for a run of
+any size. If the combined diff is genuinely large (several files or many
+hunks — a judgment call, not a fixed threshold), write the full diff to a
+scratch file instead of pasting it all inline, and show only the per-file
+summary lines directly, naming the file path for anyone who wants to open
+the whole thing in an editor.
+
+Lead the confirmation with the fast path: **"Apply all N auto-fixable
+fixes across M files? [yes] — or pick specific ones by #, or none."** Yes
+is the one-word answer for the common case; subset-by-id (e.g. "apply 2
+and 4") stays available but isn't presented as equally weighted with "all."
+If the user approves only a subset, write `<approved.json>` as the entries
+from `<merged.json>` whose `id` is in the approved set — the id from
+`aggregate()`'s output is exactly what makes this an unambiguous filter
+instead of a guess at which finding "the third one in the diff" refers to.
+Only then re-run with `--apply`:
 
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.apply_fixes --findings <approved.json> --repo-root <root> --apply
