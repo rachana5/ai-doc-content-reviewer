@@ -106,6 +106,8 @@ def test_check_git_status_ok_when_not_a_git_repo(monkeypatch, tmp_path):
 def test_main_check_exits_zero_when_all_ok(monkeypatch):
     monkeypatch.setattr(setup, "check_python_version", lambda **k: (True, "ok"))
     monkeypatch.setattr(setup, "check_gh_auth", lambda: (True, "ok"))
+    monkeypatch.setattr(setup, "check_lint_tools", lambda repo_root: {"vale": True, "alex": True})
+    monkeypatch.setattr(setup, "check_git_status", lambda repo_root: (True, "ok"))
     exit_code = setup.main(["--check"])
     assert exit_code == 0
 
