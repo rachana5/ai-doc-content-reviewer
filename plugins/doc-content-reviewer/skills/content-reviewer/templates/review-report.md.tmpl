@@ -1,0 +1,24 @@
+# Content review report — {{repo}} / {{scope}}
+
+Run on {{date}}. Mode: {{mode}}. Layers run: {{layers_run}}.
+
+## Findings
+
+{{#findings}}
+### #{{id}} · {{file}}:{{line}} — [{{layers}}] {{severity}}
+
+> {{quote}}
+
+**Why:** {{reasoning}}
+
+**Suggested fix:** {{suggested_fix}}
+
+**Confidence:** {{confidence}} · **Auto-fixable:** {{auto_fixable}}
+
+{{/findings}}
+
+## Summary
+
+{{blocking_count}} blocking, {{suggestion_count}} suggestions.
+{{auto_fixable_count}} findings are staged for auto-fix (see the diff below)
+— nothing has been written to disk yet.
