@@ -60,22 +60,59 @@ def aggregate(layer_findings: dict[str, list[dict]]) -> list[dict]:
     return assign_ids(sort_findings(dedup_findings(all_findings)))
 
 
-def render_report(findings: list[dict], template_text: str) -> str:
+def render_report(findings: list[dict], template_text: str, metadata: dict | None = None) -> str:
     """Minimal mustache-ish renderer: expands a single {{#findings}}...{{/findings}}
-    block once per finding, substituting {{key}} placeholders. Enough for this
-    plugin's fixed report shape — not a general templating engine."""
+    block once per finding, substituting {{key}} placeholders. Also substitutes
+    top-level metadata placeholders (repo, scope, date, mode, layers_run, blocking_count,
+    suggestion_count, auto_fixable_count) outside the findings loop."""
+    if metadata is None:
+        metadata = {}
+
+    # Auto-compute counts from findings if not explicitly provided in metadata
+    blocking_count = metadata.get("blocking_count")
+    if blocking_count is None:
+        blocking_count = sum(1 for f in findings if f.get("severity") == "blocking")
+
+    suggestion_count = metadata.get("suggestion_count")
+    if suggestion_count is None:
+        suggestion_count = sum(1 for f in findings if f.get("severity") == "suggestion")
+
+    auto_fixable_count = metadata.get("auto_fixable_count")
+    if auto_fixable_count is None:
+        auto_fixable_count = sum(1 for f in findings if f.get("auto_fixable"))
+
+    # Build the full metadata dict with computed counts
+    full_metadata = {
+        "repo": metadata.get("repo", ""),
+        "scope": metadata.get("scope", ""),
+        "date": metadata.get("date", ""),
+        "mode": metadata.get("mode", ""),
+        "layers_run": metadata.get("layers_run", ""),
+        "blocking_count": str(blocking_count),
+        "suggestion_count": str(suggestion_count),
+        "auto_fixable_count": str(auto_fixable_count),
+    }
+
+    # Process the findings loop
     match = re.search(r"\{\{#findings\}\}(.*?)\{\{/findings\}\}", template_text, re.DOTALL)
     if not match:
-        return template_text
-    row_template = match.group(1)
-    rows = []
-    for finding in findings:
-        row = row_template
-        row = row.replace("{{layers}}", ", ".join(finding.get("layers", [finding["layer"]])))
-        for key, value in finding.items():
-            row = row.replace("{{" + key + "}}", str(value))
-        rows.append(row)
-    return template_text[:match.start()] + "".join(rows) + template_text[match.end():]
+        result = template_text
+    else:
+        row_template = match.group(1)
+        rows = []
+        for finding in findings:
+            row = row_template
+            row = row.replace("{{layers}}", ", ".join(finding.get("layers", [finding["layer"]])))
+            for key, value in finding.items():
+                row = row.replace("{{" + key + "}}", str(value))
+            rows.append(row)
+        result = template_text[:match.start()] + "".join(rows) + template_text[match.end():]
+
+    # Substitute top-level metadata placeholders
+    for key, value in full_metadata.items():
+        result = result.replace("{{" + key + "}}", str(value))
+
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,6 +123,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--clarity", default=None)
     parser.add_argument("--template", required=True)
     parser.add_argument("--out", required=True, help="path to write merged findings JSON")
+    parser.add_argument("--repo", default=None, help="repository name for report metadata")
+    parser.add_argument("--scope", default=None, help="scope for report metadata")
+    parser.add_argument("--date", default=None, help="date for report metadata")
+    parser.add_argument("--mode", default=None, help="mode for report metadata")
+    parser.add_argument("--layers-run", dest="layers_run", default=None, help="layers run for report metadata")
     args = parser.parse_args(argv)
 
     def _load(path: str | None) -> list[dict]:
@@ -100,7 +142,21 @@ def main(argv: list[str] | None = None) -> int:
     merged = aggregate(layer_findings)
     Path(args.out).write_text(json.dumps(merged))
     template_text = Path(args.template).read_text()
-    print(render_report(merged, template_text))
+
+    # Build metadata dict from CLI arguments
+    metadata = {}
+    if args.repo is not None:
+        metadata["repo"] = args.repo
+    if args.scope is not None:
+        metadata["scope"] = args.scope
+    if args.date is not None:
+        metadata["date"] = args.date
+    if args.mode is not None:
+        metadata["mode"] = args.mode
+    if args.layers_run is not None:
+        metadata["layers_run"] = args.layers_run
+
+    print(render_report(merged, template_text, metadata))
     return 0
 
 
