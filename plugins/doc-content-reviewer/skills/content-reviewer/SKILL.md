@@ -197,12 +197,21 @@ rule — nothing is written until this explicit second call, after approval.
 After fixes are applied to the working tree (if any were), ask explicitly:
 **"Open a PR with these changes?"** Only on a clear yes:
 
+First check `git -C <root> remote -v` for the remotes. A repo checked out
+from a fork commonly carries two: `origin` (the real upstream, e.g.
+`traefik/hub-doc`) and a fork remote (the user's own copy). `open_pr`
+defaults `--remote` to `origin` — **if a fork remote exists, `--remote`
+must be passed explicitly**, or the branch pushes straight to the real
+upstream repo instead of the fork. If it's ambiguous which remote is the
+fork, ask rather than guessing.
+
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.open_pr --repo-root <root> \
   --branch content-review/<date>-<scope-slug> \
   --title "docs: content review fixes for <scope>" \
   --body "<rendered from templates/pr-body.md.tmpl>" \
-  --files <modified-file-paths-from-the---apply-step...>
+  --files <modified-file-paths-from-the---apply-step...> \
+  --remote <fork-remote-name-if-one-exists>
 ```
 
 If no, leave the applied fixes in the working tree (or ask whether to
