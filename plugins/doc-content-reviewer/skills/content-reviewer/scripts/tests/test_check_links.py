@@ -20,11 +20,11 @@ def test_http_head_and_get_send_a_user_agent(monkeypatch):
     # every link into such a domain would false-flag as broken.
     captured = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_open(request, timeout):
         captured["headers"] = request.headers
         return mock.Mock(status=200)
 
-    monkeypatch.setattr(check_links.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(check_links._opener, "open", fake_open)
     check_links._http_head("https://example.com", 10.0)
     assert "User-agent" in captured["headers"]
     assert captured["headers"]["User-agent"] != ""
@@ -142,6 +142,25 @@ def test_check_external_link_finding_on_404(monkeypatch):
     assert result["auto_fixable"] is False
 
 
+def test_no_redirect_handler_never_follows():
+    # Confirmed against a real doc link (hub.traefik.io): urllib follows
+    # redirects by default, all the way through a dashboard's OAuth login
+    # flow, and judges the link "broken" based on wherever that chain
+    # happens to land (a 404 at the auth boundary) rather than whether the
+    # link itself resolves. A redirect to a login-gated page is a working
+    # link, not a broken one — it must never be chased.
+    assert check_links._NoRedirect().redirect_request(None, None, None, None, None, None) is None
+
+
+def test_check_external_link_treats_redirect_as_not_broken(monkeypatch):
+    def fake_head(url, timeout):
+        raise urllib.error.HTTPError(url, 307, "Temporary Redirect", None, None)
+
+    monkeypatch.setattr(check_links, "_http_head", fake_head)
+    result = check_links.check_external_link("https://hub.traefik.io")
+    assert result is None
+
+
 def test_check_external_link_falls_back_to_get_when_head_rejected(monkeypatch):
     # Some servers (GitHub, various CDN-fronted doc sites) reject HEAD with
     # 403/405 while GET works fine — must retry with GET before concluding
@@ -176,6 +195,25 @@ def test_check_external_link_marks_unchecked_on_network_error(monkeypatch):
     result = check_links.check_external_link("https://example.com")
     # Network failures must never be reported as broken links (spec error-handling rule).
     assert result is None
+
+
+def test_is_non_checkable_recognizes_mailto_and_tel():
+    assert check_links._is_non_checkable("mailto:sales@traefik.io") is True
+    assert check_links._is_non_checkable("tel:+15555555555") is True
+    assert check_links._is_non_checkable("./foo.md") is False
+    assert check_links._is_non_checkable("https://example.com") is False
+
+
+def test_run_skips_mailto_links_instead_of_false_flagging_as_broken(tmp_path):
+    # mailto: has no filesystem or HTTP target to check — before this was
+    # excluded, it fell through to check_internal_link (the only other
+    # branch), which joined it onto the source file's directory as if it
+    # were a relative path and always found nothing there. Found via real
+    # mailto: links in hub-doc's kubernetes/installation.md.
+    doc = tmp_path / "page.md"
+    doc.write_text("Contact [sales](mailto:sales@traefik.io) for licensing.\n")
+    findings = check_links.run([doc], tmp_path)
+    assert findings == []
 
 
 def test_run_aggregates_findings_across_files(tmp_path, monkeypatch):

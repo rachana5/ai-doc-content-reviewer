@@ -64,6 +64,19 @@ def _is_external(target: str) -> bool:
     return target.startswith("http://") or target.startswith("https://")
 
 
+# Schemes with no filesystem or HTTP target to check — a link like this
+# falling through to check_internal_link (the only other branch) gets
+# joined onto source_file.parent as if it were a relative path, which
+# never exists on disk, producing a guaranteed false "broken link" finding
+# for every single occurrence. Found via mailto: links in real hub-doc
+# content (docs/api-gateway/setup/kubernetes/installation.md).
+_NON_CHECKABLE_SCHEMES = ("mailto:", "tel:")
+
+
+def _is_non_checkable(target: str) -> bool:
+    return target.startswith(_NON_CHECKABLE_SCHEMES)
+
+
 def check_internal_link(link_target: str, source_file: Path, repo_root: Path) -> dict | None:
     # Strip a #fragment before resolving against the filesystem — "./foo.md#heading"
     # is a valid link to foo.md, not a literal path ending in "#heading", and a
@@ -111,14 +124,32 @@ def check_internal_link(link_target: str, source_file: Path, repo_root: Path) ->
 _USER_AGENT = "Mozilla/5.0 (compatible; doc-content-reviewer-link-check/1.0)"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # Confirmed against a real doc link (hub.traefik.io): urllib follows
+    # redirects by default, all the way through a dashboard's OAuth login
+    # flow, and judges the link "broken" based on wherever that chain
+    # happens to land (a 404 at the auth boundary) — not whether the link
+    # itself resolves. A 3xx response IS a working link (that's what a
+    # redirect to a login-gated page looks like for any anonymous client,
+    # docs reader included); it should never be chased. Returning None here
+    # tells urllib not to follow — the 3xx then surfaces as an HTTPError
+    # that check_external_link's `else: return None` branch below already
+    # treats as "not broken," so no other change was needed.
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def _http_head(url: str, timeout: float):
     request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
-    return urllib.request.urlopen(request, timeout=timeout)
+    return _opener.open(request, timeout=timeout)
 
 
 def _http_get(url: str, timeout: float):
     request = urllib.request.Request(url, method="GET", headers={"User-Agent": _USER_AGENT})
-    return urllib.request.urlopen(request, timeout=timeout)
+    return _opener.open(request, timeout=timeout)
 
 
 def _broken_link_finding(url: str, status: int) -> dict:
@@ -169,6 +200,8 @@ def run(target_files: list[Path], repo_root: Path) -> list[dict]:
     for file in target_files:
         text = file.read_text()
         for target, lineno in extract_links(text):
+            if _is_non_checkable(target):
+                continue
             if _is_external(target):
                 if target not in external_cache:
                     external_cache[target] = check_external_link(target)
