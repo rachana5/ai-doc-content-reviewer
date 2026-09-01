@@ -52,6 +52,27 @@ def test_check_internal_link_ok_for_same_page_anchor(tmp_path):
     assert result is None
 
 
+def test_check_internal_link_root_relative_resolves_against_repo_root(tmp_path):
+    # A root-relative link ("/docs/foo.md") must resolve against repo_root,
+    # not source_file.parent — joining an absolute path onto a parent
+    # directory silently drops the parent (pathlib semantics), so this used
+    # to resolve against the filesystem root and false-flag as broken.
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "foo.md").write_text("hi")
+    nested_source = tmp_path / "docs" / "guides" / "bar.md"
+    nested_source.parent.mkdir()
+    nested_source.write_text("[foo](/docs/foo.md)")
+    result = check_links.check_internal_link("/docs/foo.md", nested_source, tmp_path)
+    assert result is None
+
+
+def test_check_internal_link_root_relative_finding_when_target_missing(tmp_path):
+    (tmp_path / "bar.md").write_text("[foo](/docs/missing.md)")
+    result = check_links.check_internal_link("/docs/missing.md", tmp_path / "bar.md", tmp_path)
+    assert result is not None
+    assert result["layer"] == "reference"
+
+
 def test_check_internal_link_finding_when_target_missing(tmp_path):
     (tmp_path / "bar.md").write_text("[foo](./missing.md)")
     result = check_links.check_internal_link("./missing.md", tmp_path / "bar.md", tmp_path)

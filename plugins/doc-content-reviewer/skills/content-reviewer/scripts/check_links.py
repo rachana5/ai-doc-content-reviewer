@@ -64,7 +64,16 @@ def check_internal_link(link_target: str, source_file: Path, repo_root: Path) ->
     path_part, _, _fragment = link_target.partition("#")
     if not path_part:
         return None
-    resolved = (source_file.parent / path_part).resolve()
+    # A root-relative link ("/docs/foo.md") resolves against repo_root, not
+    # the source file's directory — joining an absolute path onto
+    # source_file.parent would silently discard the parent (pathlib drops
+    # everything before an absolute right-hand operand) and resolve against
+    # the filesystem root instead, false-flagging every root-relative link
+    # as broken.
+    if path_part.startswith("/"):
+        resolved = (repo_root / path_part.lstrip("/")).resolve()
+    else:
+        resolved = (source_file.parent / path_part).resolve()
     if resolved.exists():
         return None
     return make_finding(
