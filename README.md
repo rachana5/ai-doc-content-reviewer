@@ -55,3 +55,25 @@ tests added:
 Same two runs also produced clean, correct results where the content was
 actually fine: a full defaults table on hub-doc's RateLimit middleware
 page, checked against the real Go source, came back with zero findings.
+
+A third run, a full review of hub-doc's API Gateway Kubernetes setup pages
+(installation, migration, upgrading), went all the way through the
+confidence-gated auto-fix and PR steps and found 2 more:
+
+- **`apply_fixes.py` replaced the whole line, not the quoted span.** Every
+  existing test happened to use a quote that filled the entire line, so
+  this never surfaced. Real findings often quote a phrase inside a longer
+  sentence (a markdown link's text, a mid-sentence clause) — applying the
+  fix silently ate everything else on that line. Caught by the
+  diff-before-write gate before anything landed on disk, which is exactly
+  what that gate is for.
+- **`open_pr.py` hardcoded pushing to `origin`.** A repo checked out from
+  a fork commonly has two remotes: `origin` (the real upstream) and a fork
+  remote. Defaulting to `origin` meant every PR would land on the real
+  upstream repo regardless of intent — a live risk, not hypothetical, in a
+  repo where the user has real push access as a maintainer. Fixed to
+  require `--remote` explicitly whenever a fork remote exists.
+
+That review also produced a real report: 2 blocking accuracy findings (a
+Helm command referencing a chart that doesn't exist), 4 suggestions, ending
+in a genuine PR on a personal fork.
