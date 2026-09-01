@@ -27,6 +27,21 @@ _INLINE_CODE_SPAN_RE = re.compile(r"`[^`]*`")
 _NO_SAFE_AUTOFIX = False
 
 
+_LINK_TITLE_RE = re.compile(r'''\s+(?:"[^"]*"|'[^']*'|\([^)]*\))$''')
+
+
+def _strip_link_title(target: str) -> str:
+    # CommonMark allows an optional title after the URL, e.g.
+    # [text](url "Link title") or [text](url 'Link title') — real content
+    # uses this for accessible link text (see docs/content/index.md in the
+    # traefik/traefik demo fork). Left in, the "url" half of the match
+    # includes the quoted title, which corrupts both internal-path
+    # resolution and (worse) crashes external HEAD requests with
+    # http.client.InvalidURL — an uncaught exception, not the graceful
+    # unchecked-on-network-failure path this module otherwise guarantees.
+    return _LINK_TITLE_RE.sub("", target)
+
+
 def extract_links(markdown_text: str) -> list[tuple[str, int]]:
     links: list[tuple[str, int]] = []
     in_fence = False
@@ -41,7 +56,7 @@ def extract_links(markdown_text: str) -> list[tuple[str, int]]:
         # real link.
         searchable = _INLINE_CODE_SPAN_RE.sub("", line)
         for match in _LINK_RE.finditer(searchable):
-            links.append((match.group(1), lineno))
+            links.append((_strip_link_title(match.group(1)), lineno))
     return links
 
 

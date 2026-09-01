@@ -12,6 +12,22 @@ def test_extract_links_finds_markdown_links_with_line_numbers():
     assert links == [("./foo.md", 2), ("https://example.com", 4)]
 
 
+def test_extract_links_strips_optional_link_title():
+    # [text](url "title") is valid CommonMark — the title must not leak into
+    # the extracted target, or it corrupts internal-path resolution and
+    # crashes external HEAD requests (http.client.InvalidURL) instead of
+    # degrading gracefully like every other unreachable-link case.
+    text = (
+        'Join our [Community Forum](https://community.traefik.io "Link to Traefik Community Forum").\n'
+        "See [foo](./foo.md 'local title') for details.\n"
+    )
+    links = check_links.extract_links(text)
+    assert links == [
+        ("https://community.traefik.io", 1),
+        ("./foo.md", 2),
+    ]
+
+
 def test_extract_links_ignores_fenced_code_blocks_and_inline_spans():
     # A doc that shows markdown link syntax as an example (common in
     # docs-about-docs, config snippets) must not be mistaken for a real link.
