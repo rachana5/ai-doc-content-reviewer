@@ -100,13 +100,24 @@ def check_internal_link(link_target: str, source_file: Path, repo_root: Path) ->
     )
 
 
+# urllib's default User-Agent ("Python-urllib/x.y") gets a flat 403 from
+# some sites' bot protection (confirmed against https://traefik.io itself —
+# curl with a browser UA gets a clean 308 redirect, urllib with no UA gets
+# 403). Without this, every link into such a domain reads as "broken"
+# regardless of the retry-on-403 logic below, since the GET retry would hit
+# the same UA-based block. A generic browser UA is enough to pass; this
+# isn't trying to impersonate a specific browser, just avoid looking like a
+# bot to a WAF that only checks for one.
+_USER_AGENT = "Mozilla/5.0 (compatible; doc-content-reviewer-link-check/1.0)"
+
+
 def _http_head(url: str, timeout: float):
-    request = urllib.request.Request(url, method="HEAD")
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
     return urllib.request.urlopen(request, timeout=timeout)
 
 
 def _http_get(url: str, timeout: float):
-    request = urllib.request.Request(url, method="GET")
+    request = urllib.request.Request(url, method="GET", headers={"User-Agent": _USER_AGENT})
     return urllib.request.urlopen(request, timeout=timeout)
 
 

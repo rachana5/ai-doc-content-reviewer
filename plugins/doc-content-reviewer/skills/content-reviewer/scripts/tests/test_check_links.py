@@ -12,6 +12,27 @@ def test_extract_links_finds_markdown_links_with_line_numbers():
     assert links == [("./foo.md", 2), ("https://example.com", 4)]
 
 
+def test_http_head_and_get_send_a_user_agent(monkeypatch):
+    # Confirmed against a real site (traefik.io): urllib's default
+    # "Python-urllib/x.y" User-Agent gets a flat 403 from bot protection
+    # that a browser-like UA sails through — without a UA header, the
+    # 403-triggered GET retry below would hit the exact same block and
+    # every link into such a domain would false-flag as broken.
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["headers"] = request.headers
+        return mock.Mock(status=200)
+
+    monkeypatch.setattr(check_links.urllib.request, "urlopen", fake_urlopen)
+    check_links._http_head("https://example.com", 10.0)
+    assert "User-agent" in captured["headers"]
+    assert captured["headers"]["User-agent"] != ""
+
+    check_links._http_get("https://example.com", 10.0)
+    assert "User-agent" in captured["headers"]
+
+
 def test_extract_links_strips_optional_link_title():
     # [text](url "title") is valid CommonMark — the title must not leak into
     # the extracted target, or it corrupts internal-path resolution and
