@@ -26,6 +26,30 @@ def test_apply_finding_to_text_replaces_quoted_line():
     assert "maxRetries is 3" not in result
 
 
+def test_apply_finding_to_text_replaces_only_the_quoted_span_within_a_longer_line():
+    # Found running against real hub-doc content: `quote` is very often a
+    # phrase inside a longer sentence, not the whole line — e.g. a
+    # markdown link's text, or a clause mid-sentence. Replacing the whole
+    # line (the previous behavior) silently ate everything else on it.
+    text = (
+        "Header\n"
+        "During the migration, the Pods are replaced using a "
+        "[RollingUpgrade mechanism](https://kubernetes.io/docs/x).\n"
+        "Footer\n"
+    )
+    finding = make_finding(
+        layer="accuracy", file="f.md", line=2,
+        quote="RollingUpgrade mechanism",
+        reasoning="r", suggested_fix="RollingUpdate mechanism",
+        severity="suggestion", confidence=0.85,
+    )
+    result, applied = apply_fixes.apply_finding_to_text(text, finding)
+    assert applied is True
+    assert "During the migration, the Pods are replaced using a " in result
+    assert "[RollingUpdate mechanism](https://kubernetes.io/docs/x)." in result
+    assert "RollingUpgrade" not in result
+
+
 def test_apply_finding_to_text_skips_when_quote_no_longer_matches():
     # The doc may have been edited between when the report was generated
     # and when the fix is applied, or the finding's line number may have

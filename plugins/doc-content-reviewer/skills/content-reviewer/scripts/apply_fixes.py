@@ -40,8 +40,17 @@ def apply_finding_to_text(text: str, finding: dict) -> tuple[str, bool]:
     idx = finding["line"] - 1
     if not (0 <= idx < len(lines)) or finding["quote"] not in lines[idx]:
         return text, False
-    newline = "\n" if lines[idx].endswith("\n") else ""
-    lines[idx] = finding["suggested_fix"] + newline
+    # Substitute the quoted span within the line, not the whole line.
+    # `quote` is very often a phrase inside a longer sentence, not the
+    # entire line (e.g. a markdown link's text, or a clause mid-sentence)
+    # — confirmed against real hub-doc content, where replacing the whole
+    # line silently ate everything else on it (the rest of the sentence,
+    # a surrounding markdown link) even though the diff-before-write gate
+    # meant nothing actually landed on disk unreviewed.
+    line = lines[idx]
+    newline = "\n" if line.endswith("\n") else ""
+    body = line[: -len(newline)] if newline else line
+    lines[idx] = body.replace(finding["quote"], finding["suggested_fix"]) + newline
     return "".join(lines), True
 
 
