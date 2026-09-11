@@ -20,6 +20,34 @@ corpus, or — where no such source exists yet — reports an inconsistency
 without asserting which side is correct. This distinction is not optional;
 it's the difference between catching drift and quietly enforcing it.
 
+- **The `hub-doc-pr-generator` plugin's `style-guide.md`, if that plugin is
+  installed alongside this one**, is an authoritative, corpus-independent
+  source on the same footing as a Vale rule or the Reader ID — check
+  `plugins/hub-doc-pr-generator/skills/hub-doc-pr-generator/references/style-guide.md`
+  for a match before falling back to lower-confidence judgment calls. It
+  covers punctuation substitution patterns (an em dash disguised as a colon
+  or semicolon is still the banned pattern), ungrounded category references
+  ("standard X" with only one or two examples), sentences that depend on a
+  term defined many paragraphs earlier on the same page, `id`/`ID` vs.
+  "identifier" in prose, multi-item exceptions that bury the action instead
+  of leading with it, a table followed by a prose list that re-breaks
+  down the same rows by another dimension, narrative/dramatizing framing
+  ("this record doesn't stand alone…") in place of a plain statement, a
+  vague placeholder subject ("something," "this") where a concrete noun
+  already established on the page (often by a diagram or table) should be
+  named instead, a worked example presented as if it were the feature's
+  scope rather than flagged as illustrative, and configuration specifics
+  (field names, exact values, "where to set this") sitting in a concept
+  page's intro instead of its Prerequisites or reference section. If that
+  plugin isn't installed, treat these as ordinary style judgment calls at
+  the usual 0.5–0.84 band instead.
+- **Diagrams**: a Mermaid diagram with a node wrapped in a `click` directive is
+  a real-confidence finding, not a style nitpick — that link bypasses this
+  repo's build-time link checker entirely, so a stale path fails silently
+  instead of failing CI. Same treatment for a diagram immediately preceded by
+  prose that paraphrases its node labels instead of reusing them verbatim; the
+  point of the diagram is lost if the sentence above it uses different words
+  for the same things.
 - **Terminology consistency**: check the **target repo's own** Vale config
   first — `.github/vale/traefik/*.yml` may already encode a canonical term
   via Vale's `Substitution` rule type, and `run_style_lint.py` will have
