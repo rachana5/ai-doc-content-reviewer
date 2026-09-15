@@ -25,6 +25,20 @@ code (`traefik-hub` for Hub docs, `traefik/traefik` for Proxy docs).
    category "unverifiable" — rather than silently skipping it. Use
    `severity: suggestion` and `confidence` low enough that it won't
    auto-fix (an unverifiable claim should never be auto-rewritten).
+5. Check the branch the feature actually ships from, not just the repo's
+   default branch. A Hub feature documented under an Early Access badge
+   often lives on a release branch (e.g. `v3.21`) ahead of, or diverged
+   from, `main` — a field, default, or behavior can differ between them,
+   and `main` can even be missing a fix that already shipped on the
+   release branch. Confirm which branch the doc's own version/badge
+   targets before treating `main` as ground truth.
+6. If a claim traces back to a reviewer's or generator's own suggested
+   wording rather than the doc author's, verify it against source
+   independently rather than trusting it at face value — a suggestion
+   written to fix one problem can introduce a new inaccuracy of its own,
+   most often by merging two behaviorally distinct cases into one sentence
+   that's only accurate for one of them. Treat every claim the same way
+   regardless of who proposed the wording.
 
 ## Confidence calibration
 

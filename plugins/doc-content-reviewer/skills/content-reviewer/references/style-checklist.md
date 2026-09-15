@@ -36,11 +36,19 @@ it's the difference between catching drift and quietly enforcing it.
   vague placeholder subject ("something," "this") where a concrete noun
   already established on the page (often by a diagram or table) should be
   named instead, a worked example presented as if it were the feature's
-  scope rather than flagged as illustrative, and configuration specifics
+  scope rather than flagged as illustrative, configuration specifics
   (field names, exact values, "where to set this") sitting in a concept
-  page's intro instead of its Prerequisites or reference section. If that
-  plugin isn't installed, treat these as ordinary style judgment calls at
-  the usual 0.5–0.84 band instead.
+  page's intro instead of its Prerequisites or reference section, one
+  sentence describing a behavior as if it were uniform when it actually
+  differs across two or more distinct cases (e.g. a dependency's first
+  failure vs. a later failure after it already succeeded once), a field's
+  default/minimum/behavior flattened to a single value when it actually
+  varies by a sub-option the reader already chose elsewhere (a storage
+  backend, an auth method), a trade-off toggle documented only by what it
+  turns on without saying when to use it or the risk of leaving it on, and
+  "here"/"this link" as link text instead of naming the destination. If
+  that plugin isn't installed, treat these as ordinary style judgment
+  calls at the usual 0.5–0.84 band instead.
 - **Diagrams**: a Mermaid diagram with a node wrapped in a `click` directive is
   a real-confidence finding, not a style nitpick — that link bypasses this
   repo's build-time link checker entirely, so a stale path fails silently
