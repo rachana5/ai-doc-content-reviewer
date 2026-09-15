@@ -11,6 +11,18 @@ code (`traefik-hub` for Hub docs, `traefik/traefik` for Proxy docs).
   depends on (e.g. "requires a license," "only available in Kubernetes mode").
 - Statements that something is deprecated, experimental, or GA.
 - Code samples that must actually compile/run against the current API.
+- A diagram depicting an interaction sequence (a sign-in flow, a token
+  exchange, a handshake) — check each arrow against the source the same way
+  a prose claim gets checked, and cross-check it against any diagram of the
+  same established flow already published elsewhere in the doc set. A new,
+  shortened diagram that doesn't match either source is a common way an
+  inaccuracy slips in, since a compressed version of a flow is easy to get
+  wrong in a way the full version wouldn't be.
+- In a multi-step chained example, whether the heading number, the code
+  example's own identifier (a Kubernetes `metadata.name`, a config key),
+  and every later reference to that step by number all agree with each
+  other — this is a direct, checkable-without-source-code comparison, not
+  a judgment call, so treat a mismatch as a real finding on its own.
 
 ## Process
 
@@ -39,6 +51,15 @@ code (`traefik-hub` for Hub docs, `traefik/traefik` for Proxy docs).
    most often by merging two behaviorally distinct cases into one sentence
    that's only accurate for one of them. Treat every claim the same way
    regardless of who proposed the wording.
+7. A claim about a specific third-party service's or identity provider's
+   runtime behavior (accepts/rejects a parameter, requires a particular
+   field) is not checkable against `traefik-hub` or `traefik/traefik`
+   source at all — the source shows what Hub sends, not how an external
+   server responds. Category it "unverifiable" per step 4 unless the doc
+   itself cites where the behavior was confirmed (a dated test against a
+   named vendor, a linked vendor doc) — a claim with that kind of citation
+   can be treated as sourced, not unverifiable, since the citation is
+   itself the independent source.
 
 ## Confidence calibration
 

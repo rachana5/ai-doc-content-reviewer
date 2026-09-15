@@ -45,17 +45,35 @@ it's the difference between catching drift and quietly enforcing it.
   default/minimum/behavior flattened to a single value when it actually
   varies by a sub-option the reader already chose elsewhere (a storage
   backend, an auth method), a trade-off toggle documented only by what it
-  turns on without saying when to use it or the risk of leaving it on, and
-  "here"/"this link" as link text instead of naming the destination. If
-  that plugin isn't installed, treat these as ordinary style judgment
-  calls at the usual 0.5–0.84 band instead.
+  turns on without saying when to use it or the risk of leaving it on,
+  "here"/"this link" as link text instead of naming the destination, a
+  config field referred to by the plain English word it shares ("a store")
+  instead of its exact field name (`` `store` ``), and a technical shorthand
+  or idiom ("mint an assertion," "strip a header at the edge") used without
+  a plain-language equivalent or a definition on first use. If that plugin
+  isn't installed, treat these as ordinary style judgment calls at the
+  usual 0.5–0.84 band instead.
 - **Diagrams**: a Mermaid diagram with a node wrapped in a `click` directive is
   a real-confidence finding, not a style nitpick — that link bypasses this
   repo's build-time link checker entirely, so a stale path fails silently
   instead of failing CI. Same treatment for a diagram immediately preceded by
   prose that paraphrases its node labels instead of reusing them verbatim; the
   point of the diagram is lost if the sentence above it uses different words
-  for the same things.
+  for the same things. Also check a diagram depicting an established
+  multi-step process (an OIDC sign-in redirect, an mTLS handshake) against
+  any diagram of that same flow already published elsewhere in the doc set —
+  a new diagram that compresses it into a few different-looking arrows is a
+  real-confidence finding, not a style nitpick, since a shortened version is
+  often wrong in a way the full version isn't; this overlaps with the
+  accuracy layer's own source-verification check (see accuracy-checklist.md)
+  and either layer catching it is fine.
+- **Multi-step chained examples**: when a page numbers steps in headings
+  (`### Step 2: ...`) backed by code examples with their own identifiers (a
+  Kubernetes `metadata.name`, a config key), check that the identifier's
+  number matches its heading, and that every later reference to that step by
+  number — a final wiring example, a callout that says "on step N" — agrees
+  with both. A mismatch here is a real-confidence finding: the numbers are
+  checkable directly against each other, independent of corpus or judgment.
 - **Terminology consistency**: check the **target repo's own** Vale config
   first — `.github/vale/traefik/*.yml` may already encode a canonical term
   via Vale's `Substitution` rule type, and `run_style_lint.py` will have
