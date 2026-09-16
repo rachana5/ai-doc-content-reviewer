@@ -20,6 +20,81 @@ corpus, or — where no such source exists yet — reports an inconsistency
 without asserting which side is correct. This distinction is not optional;
 it's the difference between catching drift and quietly enforcing it.
 
+- **The `hub-doc-pr-generator` plugin's `style-guide.md`, if that plugin is
+  installed alongside this one**, is an authoritative, corpus-independent
+  source on the same footing as a Vale rule or the Reader ID — check
+  `plugins/hub-doc-pr-generator/skills/hub-doc-pr-generator/references/style-guide.md`
+  for a match before falling back to lower-confidence judgment calls. It
+  covers punctuation substitution patterns (an em dash disguised as a colon
+  or semicolon is still the banned pattern), ungrounded category references
+  ("standard X" with only one or two examples), sentences that depend on a
+  term defined many paragraphs earlier on the same page, `id`/`ID` vs.
+  "identifier" in prose, multi-item exceptions that bury the action instead
+  of leading with it, a table followed by a prose list that re-breaks
+  down the same rows by another dimension, narrative/dramatizing framing
+  ("this record doesn't stand alone…") in place of a plain statement, a
+  vague placeholder subject ("something," "this") where a concrete noun
+  already established on the page (often by a diagram or table) should be
+  named instead, a worked example presented as if it were the feature's
+  scope rather than flagged as illustrative, configuration specifics
+  (field names, exact values, "where to set this") sitting in a concept
+  page's intro instead of its Prerequisites or reference section, one
+  sentence describing a behavior as if it were uniform when it actually
+  differs across two or more distinct cases (e.g. a dependency's first
+  failure vs. a later failure after it already succeeded once), a field's
+  default/minimum/behavior flattened to a single value when it actually
+  varies by a sub-option the reader already chose elsewhere (a storage
+  backend, an auth method), a trade-off toggle documented only by what it
+  turns on without saying when to use it or the risk of leaving it on,
+  "here"/"this link" as link text instead of naming the destination, a
+  config field referred to by the plain English word it shares ("a store")
+  instead of its exact field name (`` `store` ``), and a technical shorthand
+  or idiom ("mint an assertion," "strip a header at the edge") used without
+  a plain-language equivalent or a definition on first use, a positional
+  reference ("as shown above," "the example above") that requires the reader
+  to have already scrolled past another part of the page — a reader who
+  lands mid-page from a search result or an anchor link has nothing "above"
+  to refer back to — contrast framing ("it's not just a wrapper, it's a
+  complete toolkit") where the negated half adds no information over stating
+  the positive claim directly, and a UI element described by its screen
+  position ("the button on the left") instead of its label — a layout gets
+  redesigned and the direction goes stale in a way a label doesn't. If that
+  plugin isn't installed, treat these as ordinary style judgment calls at the
+  usual 0.5–0.84 band instead.
+- **Narrated code**: prose that restates what an adjacent, readable code block
+  already shows ("The code below imports the library and initializes a
+  client") is a real-confidence finding — compare the sentence against the
+  code block it describes rather than judging the sentence in isolation. The
+  fix is not deletion alone: check whether the sentence should instead explain
+  *why* the code does this, not *what* it does, before flagging it as pure
+  filler.
+- **Callout stacking**: two callouts immediately adjacent, with no body prose
+  between them, is a real-confidence finding — this is directly observable in
+  the doc's structure, not a judgment call. When you see it, also check
+  whether either callout is explaining *why* the instruction next to it
+  matters; if so, the fix is usually to fold it into that sentence rather
+  than just adding prose as a spacer between the two callouts.
+- **Diagrams**: a Mermaid diagram with a node wrapped in a `click` directive is
+  a real-confidence finding, not a style nitpick — that link bypasses this
+  repo's build-time link checker entirely, so a stale path fails silently
+  instead of failing CI. Same treatment for a diagram immediately preceded by
+  prose that paraphrases its node labels instead of reusing them verbatim; the
+  point of the diagram is lost if the sentence above it uses different words
+  for the same things. Also check a diagram depicting an established
+  multi-step process (an OIDC sign-in redirect, an mTLS handshake) against
+  any diagram of that same flow already published elsewhere in the doc set —
+  a new diagram that compresses it into a few different-looking arrows is a
+  real-confidence finding, not a style nitpick, since a shortened version is
+  often wrong in a way the full version isn't; this overlaps with the
+  accuracy layer's own source-verification check (see accuracy-checklist.md)
+  and either layer catching it is fine.
+- **Multi-step chained examples**: when a page numbers steps in headings
+  (`### Step 2: ...`) backed by code examples with their own identifiers (a
+  Kubernetes `metadata.name`, a config key), check that the identifier's
+  number matches its heading, and that every later reference to that step by
+  number — a final wiring example, a callout that says "on step N" — agrees
+  with both. A mismatch here is a real-confidence finding: the numbers are
+  checkable directly against each other, independent of corpus or judgment.
 - **Terminology consistency**: check the **target repo's own** Vale config
   first — `.github/vale/traefik/*.yml` may already encode a canonical term
   via Vale's `Substitution` rule type, and `run_style_lint.py` will have
