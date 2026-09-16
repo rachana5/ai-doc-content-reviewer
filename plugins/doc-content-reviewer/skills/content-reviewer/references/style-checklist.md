@@ -50,9 +50,18 @@ it's the difference between catching drift and quietly enforcing it.
   config field referred to by the plain English word it shares ("a store")
   instead of its exact field name (`` `store` ``), and a technical shorthand
   or idiom ("mint an assertion," "strip a header at the edge") used without
-  a plain-language equivalent or a definition on first use. If that plugin
-  isn't installed, treat these as ordinary style judgment calls at the
-  usual 0.5–0.84 band instead.
+  a plain-language equivalent or a definition on first use, and a positional
+  reference ("as shown above," "the example above") that requires the reader
+  to have already scrolled past another part of the page — a reader who
+  lands mid-page from a search result or an anchor link has nothing "above"
+  to refer back to. If that plugin isn't installed, treat these as ordinary
+  style judgment calls at the usual 0.5–0.84 band instead.
+- **Callout stacking**: two callouts immediately adjacent, with no body prose
+  between them, is a real-confidence finding — this is directly observable in
+  the doc's structure, not a judgment call. When you see it, also check
+  whether either callout is explaining *why* the instruction next to it
+  matters; if so, the fix is usually to fold it into that sentence rather
+  than just adding prose as a spacer between the two callouts.
 - **Diagrams**: a Mermaid diagram with a node wrapped in a `click` directive is
   a real-confidence finding, not a style nitpick — that link bypasses this
   repo's build-time link checker entirely, so a stale path fails silently
