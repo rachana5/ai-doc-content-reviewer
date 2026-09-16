@@ -50,12 +50,24 @@ it's the difference between catching drift and quietly enforcing it.
   config field referred to by the plain English word it shares ("a store")
   instead of its exact field name (`` `store` ``), and a technical shorthand
   or idiom ("mint an assertion," "strip a header at the edge") used without
-  a plain-language equivalent or a definition on first use, and a positional
+  a plain-language equivalent or a definition on first use, a positional
   reference ("as shown above," "the example above") that requires the reader
   to have already scrolled past another part of the page — a reader who
   lands mid-page from a search result or an anchor link has nothing "above"
-  to refer back to. If that plugin isn't installed, treat these as ordinary
-  style judgment calls at the usual 0.5–0.84 band instead.
+  to refer back to — contrast framing ("it's not just a wrapper, it's a
+  complete toolkit") where the negated half adds no information over stating
+  the positive claim directly, and a UI element described by its screen
+  position ("the button on the left") instead of its label — a layout gets
+  redesigned and the direction goes stale in a way a label doesn't. If that
+  plugin isn't installed, treat these as ordinary style judgment calls at the
+  usual 0.5–0.84 band instead.
+- **Narrated code**: prose that restates what an adjacent, readable code block
+  already shows ("The code below imports the library and initializes a
+  client") is a real-confidence finding — compare the sentence against the
+  code block it describes rather than judging the sentence in isolation. The
+  fix is not deletion alone: check whether the sentence should instead explain
+  *why* the code does this, not *what* it does, before flagging it as pure
+  filler.
 - **Callout stacking**: two callouts immediately adjacent, with no body prose
   between them, is a real-confidence finding — this is directly observable in
   the doc's structure, not a judgment call. When you see it, also check
