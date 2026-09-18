@@ -26,12 +26,6 @@ from scripts import _git
 # caller can tell "no current file" apart from "haven't seen a header
 # yet", and any hunks that follow are then skipped: nothing in a deleted
 # file's old content belongs on a "what's new" range list.
-#
-# The captured path can carry a trailing "\r" if the diff ever has CRLF
-# line endings (git normally emits bare "\n", but nothing guarantees the
-# input always came straight from git) — stripped below rather than in
-# the regex, since a $-anchored alternative would have to duplicate that
-# handling for both branches.
 _FILE_HEADER_RE = re.compile(r"^\+\+\+ (?:b/(?P<path>.+)|(?P<devnull>/dev/null))$")
 
 # Matches a hunk header's new-file side, e.g. "@@ -12,3 +14,5 @@ context".
@@ -55,8 +49,7 @@ def parse_changed_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     for line in diff_text.splitlines():
         header = _FILE_HEADER_RE.match(line)
         if header:
-            path = header.group("path")
-            current_file = path.rstrip("\r") if path is not None else None
+            current_file = header.group("path")
             continue
         hunk = _HUNK_RE.match(line)
         if hunk and current_file is not None:

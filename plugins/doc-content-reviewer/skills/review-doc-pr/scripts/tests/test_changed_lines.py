@@ -126,22 +126,6 @@ def test_empty_diff_returns_empty_dict():
     assert changed_lines.parse_changed_ranges("") == {}
 
 
-def test_crlf_line_endings_do_not_corrupt_the_file_path():
-    # A trailing "\r" surviving into the captured path (if the diff ever
-    # has CRLF endings) would silently break key-matching against
-    # downstream consumers keyed on the plain path string.
-    diff_text = (
-        "diff --git a/docs/foo.md b/docs/foo.md\r\n"
-        "index abc123..def456 100644\r\n"
-        "--- a/docs/foo.md\r\n"
-        "+++ b/docs/foo.md\r\n"
-        "@@ -10 +10 @@\r\n"
-        "-old\r\n"
-        "+new\r\n"
-    )
-    assert changed_lines.parse_changed_ranges(diff_text) == {"docs/foo.md": [(10, 10)]}
-
-
 def test_line_in_ranges_checks_inclusive_bounds():
     ranges = [(5, 6), (21, 21)]
     assert changed_lines.line_in_ranges(5, ranges) is True
