@@ -126,6 +126,31 @@ def test_empty_diff_returns_empty_dict():
     assert changed_lines.parse_changed_ranges("") == {}
 
 
+def test_content_resembling_a_file_header_does_not_hijack_current_file():
+    # A doc's own added content can legitimately look like a diff header:
+    # the source line "++ b/fake.md" (e.g. a patch-syntax example) becomes
+    # "+++ b/fake.md" once git prefixes it with its own "+" change-marker
+    # for being an added line -- indistinguishable from a real header by
+    # that line alone. The second hunk below must still attribute to
+    # docs/real.md, not to the phantom "fake.md" the content line implies.
+    diff_text = (
+        "diff --git a/docs/real.md b/docs/real.md\n"
+        "index 111..222 100644\n"
+        "--- a/docs/real.md\n"
+        "+++ b/docs/real.md\n"
+        "@@ -1 +2,3 @@\n"
+        "+line a\n"
+        "+++ b/fake.md\n"
+        "+line c\n"
+        "@@ -10 +14,2 @@\n"
+        "+another line\n"
+        "+yet another\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {
+        "docs/real.md": [(2, 4), (14, 15)],
+    }
+
+
 def test_line_in_ranges_checks_inclusive_bounds():
     ranges = [(5, 6), (21, 21)]
     assert changed_lines.line_in_ranges(5, ranges) is True

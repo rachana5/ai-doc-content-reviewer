@@ -21,12 +21,26 @@ from pathlib import Path
 
 from scripts import _git
 
+# Matches a diff's "--- a/<path>" (or "--- /dev/null") old-file header —
+# used only as a gate on the "+++" header below, never captured itself.
+_OLD_FILE_HEADER_RE = re.compile(r"^--- (?:a/.+|/dev/null)$")
+
 # Matches a diff's "+++ b/<path>" file header. A deleted file's header is
 # "+++ /dev/null" instead (no b/ prefix) — captured as `devnull` so the
 # caller can tell "no current file" apart from "haven't seen a header
 # yet", and any hunks that follow are then skipped: nothing in a deleted
 # file's old content belongs on a "what's new" range list.
-_FILE_HEADER_RE = re.compile(r"^\+\+\+ (?:b/(?P<path>.+)|(?P<devnull>/dev/null))$")
+#
+# Only honored immediately after a matching "---" line (see
+# _OLD_FILE_HEADER_RE above) — a real header is always emitted as that
+# pair. Without this gate, an ADDED line whose own text merely resembles
+# one ("++ b/fake.md" becomes "+++ b/fake.md" once git prefixes it with
+# its own "+" change-marker) is indistinguishable from a real header by
+# looking at that line alone, and would otherwise hijack current_file
+# mid-hunk — plausible content for this tool to encounter, since its
+# whole purpose is analyzing diffs of documentation that may itself
+# contain diff/patch examples.
+_NEW_FILE_HEADER_RE = re.compile(r"^\+\+\+ (?:b/(?P<path>.+)|(?P<devnull>/dev/null))$")
 
 # Matches a hunk header's new-file side, e.g. "@@ -12,3 +14,5 @@ context".
 # The count is omitted by unified-diff convention when it's exactly 1
@@ -46,8 +60,13 @@ def parse_changed_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     """
     ranges: dict[str, list[tuple[int, int]]] = {}
     current_file: str | None = None
+    saw_old_header = False
     for line in diff_text.splitlines():
-        header = _FILE_HEADER_RE.match(line)
+        if _OLD_FILE_HEADER_RE.match(line):
+            saw_old_header = True
+            continue
+        header = _NEW_FILE_HEADER_RE.match(line) if saw_old_header else None
+        saw_old_header = False
         if header:
             current_file = header.group("path")
             continue
