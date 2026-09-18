@@ -21,25 +21,28 @@ from pathlib import Path
 
 from scripts import _git
 
-# Matches a diff's "--- a/<path>" (or "--- /dev/null") old-file header —
-# used only as a gate on the "+++" header below, never captured itself.
-_OLD_FILE_HEADER_RE = re.compile(r"^--- (?:a/.+|/dev/null)$")
+# Matches only the literal start of a "diff --git a/<old> b/<new>" file
+# boundary — the ONE line in a unified diff that a hunk's own content can
+# never fake, no matter what that content says. Every line inside a hunk
+# body (added or removed) always carries its own leading "+"/"-" change
+# marker character, prepended by git itself; a doc's line whose own text
+# happens to start with "diff --git " would render as "+diff --git ..."
+# (added) or "-diff --git ..." (removed), neither of which matches this
+# pattern anchored at column 0. That's what makes anchoring here, instead
+# of pattern-matching "+++ b/<path>"-shaped lines wherever they appear,
+# structurally immune to content that resembles diff/patch syntax —
+# plausible content specifically for this tool, since its job is
+# analyzing diffs of documentation that may itself show such examples.
+_DIFF_GIT_RE = re.compile(r"^diff --git ")
 
 # Matches a diff's "+++ b/<path>" file header. A deleted file's header is
 # "+++ /dev/null" instead (no b/ prefix) — captured as `devnull` so the
 # caller can tell "no current file" apart from "haven't seen a header
-# yet", and any hunks that follow are then skipped: nothing in a deleted
-# file's old content belongs on a "what's new" range list.
-#
-# Only honored immediately after a matching "---" line (see
-# _OLD_FILE_HEADER_RE above) — a real header is always emitted as that
-# pair. Without this gate, an ADDED line whose own text merely resembles
-# one ("++ b/fake.md" becomes "+++ b/fake.md" once git prefixes it with
-# its own "+" change-marker) is indistinguishable from a real header by
-# looking at that line alone, and would otherwise hijack current_file
-# mid-hunk — plausible content for this tool to encounter, since its
-# whole purpose is analyzing diffs of documentation that may itself
-# contain diff/patch examples.
+# yet". Only ever consulted for the first such line following a
+# _DIFF_GIT_RE match (see the `expect_header` state below) — never
+# re-matched against hunk-body content afterward, which is what actually
+# closes the spoofing risk described above (the anchor alone isn't
+# enough without also refusing to look for more headers once past it).
 _NEW_FILE_HEADER_RE = re.compile(r"^\+\+\+ (?:b/(?P<path>.+)|(?P<devnull>/dev/null))$")
 
 # Matches a hunk header's new-file side, e.g. "@@ -12,3 +14,5 @@ context".
@@ -60,15 +63,22 @@ def parse_changed_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     """
     ranges: dict[str, list[tuple[int, int]]] = {}
     current_file: str | None = None
-    saw_old_header = False
+    # True from a "diff --git" line until the matching "+++" header is
+    # found. While True, hunk lines are ignored (there's no confirmed
+    # current_file yet for a header block still in progress). Once it
+    # flips False, _NEW_FILE_HEADER_RE is never consulted again until the
+    # next literal "diff --git" line — the reason a hunk body can't
+    # hijack current_file no matter what its content looks like.
+    expect_header = False
     for line in diff_text.splitlines():
-        if _OLD_FILE_HEADER_RE.match(line):
-            saw_old_header = True
+        if _DIFF_GIT_RE.match(line):
+            expect_header = True
             continue
-        header = _NEW_FILE_HEADER_RE.match(line) if saw_old_header else None
-        saw_old_header = False
-        if header:
-            current_file = header.group("path")
+        if expect_header:
+            header = _NEW_FILE_HEADER_RE.match(line)
+            if header:
+                current_file = header.group("path")
+                expect_header = False
             continue
         hunk = _HUNK_RE.match(line)
         if hunk and current_file is not None:
@@ -94,10 +104,19 @@ def fetch_diff(repo_root: Path, base: str, head: str, files: list[str] | None = 
     --unified=0 is what makes hunk ranges exactly the changed lines, with
     no surrounding context lines to exclude afterward.
 
+    --src-prefix/--dst-prefix are passed explicitly so the output always
+    carries "a/"/"b/" regardless of the caller's own git config: a repo
+    (or a CI box's global config) with `diff.noprefix=true` set drops
+    those prefixes from every header line — including "diff --git" itself
+    — which would otherwise make every regex in this module fail to match
+    anything, silently returning no ranges for a PR that genuinely has
+    changes. Confirmed directly against a `diff.noprefix=true` repo before
+    adding this.
+
     Raises `_git.GitError` on failure — reuses content-reviewer's own
     git wrapper rather than a second, slightly different subprocess
     implementation living here."""
-    args = ["diff", "--unified=0", f"{base}...{head}"]
+    args = ["diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", f"{base}...{head}"]
     if files:
         args += ["--", *files]
     return _git.run(str(repo_root), args)

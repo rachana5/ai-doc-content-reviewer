@@ -151,6 +151,33 @@ def test_content_resembling_a_file_header_does_not_hijack_current_file():
     }
 
 
+def test_content_resembling_a_full_header_pair_does_not_hijack_current_file():
+    # Escalation of the case above: content that renders as a full
+    # "--- a/old.md" / "+++ b/new.md" pair (source lines "-- a/old.md",
+    # removed, immediately followed by "++ b/new.md", added -- each
+    # gaining its own leading change-marker once diffed) must still not
+    # be mistaken for a real file-section boundary. Anchoring on the
+    # literal "diff --git" line is what makes this immune regardless of
+    # how header-like the hunk body's own content looks: that line is the
+    # only one a hunk's content can never produce, since every hunk-body
+    # line always carries its own leading "+"/"-" marker.
+    diff_text = (
+        "diff --git a/docs/real.md b/docs/real.md\n"
+        "index 111..222 100644\n"
+        "--- a/docs/real.md\n"
+        "+++ b/docs/real.md\n"
+        "@@ -1,2 +1,2 @@\n"
+        "--- a/old.md\n"
+        "+++ b/new.md\n"
+        "@@ -10 +14,2 @@\n"
+        "+another line\n"
+        "+yet another\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {
+        "docs/real.md": [(1, 2), (14, 15)],
+    }
+
+
 def test_line_in_ranges_checks_inclusive_bounds():
     ranges = [(5, 6), (21, 21)]
     assert changed_lines.line_in_ranges(5, ranges) is True
@@ -173,7 +200,9 @@ def test_fetch_diff_invokes_content_reviewers_git_wrapper(monkeypatch):
 
     assert result == "diff output"
     assert captured["repo_path"] == "/repo"
-    assert captured["args"] == ["diff", "--unified=0", "main...feature-branch"]
+    assert captured["args"] == [
+        "diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", "main...feature-branch",
+    ]
 
 
 def test_fetch_diff_scopes_to_given_files(monkeypatch):
