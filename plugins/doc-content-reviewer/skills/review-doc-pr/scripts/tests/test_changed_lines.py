@@ -187,7 +187,7 @@ def test_line_in_ranges_checks_inclusive_bounds():
     assert changed_lines.line_in_ranges(20, ranges) is False
 
 
-def test_fetch_diff_invokes_content_reviewers_git_wrapper(monkeypatch):
+def test_fetch_diff_delegates_to_the_git_wrapper(monkeypatch):
     captured = {}
 
     def fake_run(repo_path, args):
@@ -228,3 +228,14 @@ def test_fetch_diff_propagates_git_errors(monkeypatch):
         assert False, "expected _git.GitError"
     except _git.GitError as e:
         assert "bad revision" in str(e)
+
+
+def test_main_reports_a_clean_error_on_git_failure_instead_of_a_traceback(monkeypatch, capsys):
+    def fake_run(repo_path, args):
+        raise _git.GitError("fatal: bad revision 'main'")
+
+    monkeypatch.setattr(changed_lines._git, "run", fake_run)
+    exit_code = changed_lines.main(["--repo-root", "/repo", "--base", "main", "--head", "feature"])
+
+    assert exit_code == 1
+    assert "bad revision" in capsys.readouterr().err

@@ -113,9 +113,12 @@ def fetch_diff(repo_root: Path, base: str, head: str, files: list[str] | None = 
     changes. Confirmed directly against a `diff.noprefix=true` repo before
     adding this.
 
-    Raises `_git.GitError` on failure — reuses content-reviewer's own
-    git wrapper rather than a second, slightly different subprocess
-    implementation living here."""
+    Raises `_git.GitError` on failure — via this skill's own copy of
+    content-reviewer's git wrapper (`scripts/_git.py`, kept byte-identical
+    between the two skills rather than imported at runtime — each skill
+    is invoked with PYTHONPATH scoped to only its own directory, so
+    there's no cross-skill import path to begin with), rather than a
+    third, slightly different subprocess implementation living here."""
     args = ["diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", f"{base}...{head}"]
     if files:
         args += ["--", *files]
@@ -130,7 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("files", nargs="*", help="restrict the diff to these files (optional)")
     args = parser.parse_args(argv)
 
-    diff_text = fetch_diff(Path(args.repo_root), args.base, args.head, args.files or None)
+    try:
+        diff_text = fetch_diff(Path(args.repo_root), args.base, args.head, args.files or None)
+    except _git.GitError as e:
+        print(f"[changed_lines] ERROR: {e}", file=sys.stderr)
+        return 1
     print(json.dumps(parse_changed_ranges(diff_text)))
     return 0
 
