@@ -1,8 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
-from unittest import mock
 
-from scripts import changed_lines
+from scripts import changed_lines, _git
 
 
 def test_modified_file_single_hunk_uses_new_side_count():
@@ -127,6 +126,22 @@ def test_empty_diff_returns_empty_dict():
     assert changed_lines.parse_changed_ranges("") == {}
 
 
+def test_crlf_line_endings_do_not_corrupt_the_file_path():
+    # A trailing "\r" surviving into the captured path (if the diff ever
+    # has CRLF endings) would silently break key-matching against
+    # downstream consumers keyed on the plain path string.
+    diff_text = (
+        "diff --git a/docs/foo.md b/docs/foo.md\r\n"
+        "index abc123..def456 100644\r\n"
+        "--- a/docs/foo.md\r\n"
+        "+++ b/docs/foo.md\r\n"
+        "@@ -10 +10 @@\r\n"
+        "-old\r\n"
+        "+new\r\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {"docs/foo.md": [(10, 10)]}
+
+
 def test_line_in_ranges_checks_inclusive_bounds():
     ranges = [(5, 6), (21, 21)]
     assert changed_lines.line_in_ranges(5, ranges) is True
@@ -136,42 +151,42 @@ def test_line_in_ranges_checks_inclusive_bounds():
     assert changed_lines.line_in_ranges(20, ranges) is False
 
 
-def test_fetch_diff_invokes_git_diff_with_unified_zero(monkeypatch):
+def test_fetch_diff_invokes_content_reviewers_git_wrapper(monkeypatch):
     captured = {}
 
-    def fake_run(args, capture_output, text):
+    def fake_run(repo_path, args):
+        captured["repo_path"] = repo_path
         captured["args"] = args
-        return mock.Mock(returncode=0, stdout="diff output", stderr="")
+        return "diff output"
 
-    monkeypatch.setattr(changed_lines.subprocess, "run", fake_run)
+    monkeypatch.setattr(changed_lines._git, "run", fake_run)
     result = changed_lines.fetch_diff(Path("/repo"), "main", "feature-branch")
 
     assert result == "diff output"
-    assert captured["args"] == [
-        "git", "-C", "/repo", "diff", "--unified=0", "main...feature-branch",
-    ]
+    assert captured["repo_path"] == "/repo"
+    assert captured["args"] == ["diff", "--unified=0", "main...feature-branch"]
 
 
 def test_fetch_diff_scopes_to_given_files(monkeypatch):
     captured = {}
 
-    def fake_run(args, capture_output, text):
+    def fake_run(repo_path, args):
         captured["args"] = args
-        return mock.Mock(returncode=0, stdout="", stderr="")
+        return ""
 
-    monkeypatch.setattr(changed_lines.subprocess, "run", fake_run)
+    monkeypatch.setattr(changed_lines._git, "run", fake_run)
     changed_lines.fetch_diff(Path("/repo"), "main", "feature-branch", ["docs/a.md", "docs/b.md"])
 
     assert captured["args"][-3:] == ["--", "docs/a.md", "docs/b.md"]
 
 
-def test_fetch_diff_raises_on_git_failure(monkeypatch):
-    def fake_run(args, capture_output, text):
-        return mock.Mock(returncode=128, stdout="", stderr="fatal: bad revision 'main'")
+def test_fetch_diff_propagates_git_errors(monkeypatch):
+    def fake_run(repo_path, args):
+        raise _git.GitError("fatal: bad revision 'main'")
 
-    monkeypatch.setattr(changed_lines.subprocess, "run", fake_run)
+    monkeypatch.setattr(changed_lines._git, "run", fake_run)
     try:
         changed_lines.fetch_diff(Path("/repo"), "main", "feature-branch")
-        assert False, "expected RuntimeError"
-    except RuntimeError as e:
+        assert False, "expected _git.GitError"
+    except _git.GitError as e:
         assert "bad revision" in str(e)

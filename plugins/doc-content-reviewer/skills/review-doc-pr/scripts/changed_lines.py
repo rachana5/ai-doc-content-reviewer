@@ -15,16 +15,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import re
 from pathlib import Path
+
+from scripts import _git
 
 # Matches a diff's "+++ b/<path>" file header. A deleted file's header is
 # "+++ /dev/null" instead (no b/ prefix) — captured as `devnull` so the
 # caller can tell "no current file" apart from "haven't seen a header
 # yet", and any hunks that follow are then skipped: nothing in a deleted
 # file's old content belongs on a "what's new" range list.
+#
+# The captured path can carry a trailing "\r" if the diff ever has CRLF
+# line endings (git normally emits bare "\n", but nothing guarantees the
+# input always came straight from git) — stripped below rather than in
+# the regex, since a $-anchored alternative would have to duplicate that
+# handling for both branches.
 _FILE_HEADER_RE = re.compile(r"^\+\+\+ (?:b/(?P<path>.+)|(?P<devnull>/dev/null))$")
 
 # Matches a hunk header's new-file side, e.g. "@@ -12,3 +14,5 @@ context".
@@ -48,7 +55,8 @@ def parse_changed_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     for line in diff_text.splitlines():
         header = _FILE_HEADER_RE.match(line)
         if header:
-            current_file = header.group("path")
+            path = header.group("path")
+            current_file = path.rstrip("\r") if path is not None else None
             continue
         hunk = _HUNK_RE.match(line)
         if hunk and current_file is not None:
@@ -72,14 +80,15 @@ def fetch_diff(repo_root: Path, base: str, head: str, files: list[str] | None = 
     `repo_root`'s history (the CI checkout is expected to have fetched
     both — the PR's head, already checked out, and its base branch).
     --unified=0 is what makes hunk ranges exactly the changed lines, with
-    no surrounding context lines to exclude afterward."""
-    args = ["git", "-C", str(repo_root), "diff", "--unified=0", f"{base}...{head}"]
+    no surrounding context lines to exclude afterward.
+
+    Raises `_git.GitError` on failure — reuses content-reviewer's own
+    git wrapper rather than a second, slightly different subprocess
+    implementation living here."""
+    args = ["diff", "--unified=0", f"{base}...{head}"]
     if files:
         args += ["--", *files]
-    result = subprocess.run(args, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"git diff failed: {result.stderr.strip()}")
-    return result.stdout
+    return _git.run(str(repo_root), args)
 
 
 def main(argv: list[str] | None = None) -> int:
