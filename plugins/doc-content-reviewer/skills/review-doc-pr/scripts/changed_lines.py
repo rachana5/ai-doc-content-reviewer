@@ -114,11 +114,16 @@ def fetch_diff(repo_root: Path, base: str, head: str, files: list[str] | None = 
     adding this.
 
     Raises `_git.GitError` on failure — via this skill's own copy of
-    content-reviewer's git wrapper (`scripts/_git.py`, kept byte-identical
-    between the two skills rather than imported at runtime — each skill
-    is invoked with PYTHONPATH scoped to only its own directory, so
-    there's no cross-skill import path to begin with), rather than a
-    third, slightly different subprocess implementation living here."""
+    content-reviewer's git wrapper (`scripts/_git.py`; each skill is
+    invoked with PYTHONPATH scoped to only its own directory, so there's
+    no cross-skill import path to begin with). This copy adds an explicit
+    encoding pin and a subprocess timeout that content-reviewer's own copy
+    does NOT have — syncing that hardening back deliberately deferred
+    (2026-09-18) rather than applied, since content-reviewer's copy is
+    also used by `open_pr.py`'s `git push`, the one call site among its
+    users that's genuinely network-bound; a blanket timeout there needs
+    its own decision, not one made as a side effect of hardening this
+    skill's diff-fetch path."""
     args = ["diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", f"{base}...{head}"]
     if files:
         args += ["--", *files]
