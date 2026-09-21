@@ -201,6 +201,7 @@ def test_fetch_diff_delegates_to_the_git_wrapper(monkeypatch):
     assert result == "diff output"
     assert captured["repo_path"] == "/repo"
     assert captured["args"] == [
+        "-c", "core.quotePath=false",
         "diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", "main...feature-branch",
     ]
 

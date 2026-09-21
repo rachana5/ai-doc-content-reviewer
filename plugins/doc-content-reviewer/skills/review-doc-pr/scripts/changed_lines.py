@@ -113,6 +113,15 @@ def fetch_diff(repo_root: Path, base: str, head: str, files: list[str] | None = 
     changes. Confirmed directly against a `diff.noprefix=true` repo before
     adding this.
 
+    `-c core.quotePath=false` is passed for the same reason, against a
+    different default: with quoting on (git's own default), a path with
+    a non-ASCII character — plausible for doc filenames — renders as a
+    quoted, octal-escaped string (`"caf\303\251.md"`) instead of plain
+    UTF-8 text, which the header regex doesn't match either. Confirmed
+    directly against a real `café.md` file under `core.quotePath=true`
+    (git's default) before adding this — without it, that file silently
+    gets zero changed-line ranges despite having a real change.
+
     Raises `_git.GitError` on failure — via this skill's own copy of
     content-reviewer's git wrapper (`scripts/_git.py`; each skill is
     invoked with PYTHONPATH scoped to only its own directory, so there's
@@ -124,7 +133,10 @@ def fetch_diff(repo_root: Path, base: str, head: str, files: list[str] | None = 
     users that's genuinely network-bound; a blanket timeout there needs
     its own decision, not one made as a side effect of hardening this
     skill's diff-fetch path."""
-    args = ["diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", f"{base}...{head}"]
+    args = [
+        "-c", "core.quotePath=false",
+        "diff", "--unified=0", "--src-prefix=a/", "--dst-prefix=b/", f"{base}...{head}",
+    ]
     if files:
         args += ["--", *files]
     return _git.run(str(repo_root), args)

@@ -59,3 +59,28 @@ def test_run_converts_a_timeout_expiry_into_giterror(monkeypatch):
     monkeypatch.setattr(_git.subprocess, "run", fake_run)
     with pytest.raises(_git.GitError, match="timed out"):
         _git.run("/repo", ["fetch"])
+
+
+def test_run_converts_a_missing_git_binary_into_giterror(monkeypatch):
+    # A CI image that never installed git raises FileNotFoundError (an
+    # OSError subclass) before subprocess.run produces any CompletedProcess
+    # at all -- confirmed directly against a real PATH with git's directory
+    # stripped out, not just mocked here.
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "git")
+
+    monkeypatch.setattr(_git.subprocess, "run", fake_run)
+    with pytest.raises(_git.GitError, match="could not run git"):
+        _git.run("/repo", ["status"])
+
+
+def test_run_converts_undecodable_output_into_giterror(monkeypatch):
+    # git's output can contain bytes that aren't valid utf-8 (e.g. leaking
+    # through a binary file's diff) -- subprocess.run raises this from
+    # inside its own decode step, before returncode is ever checked.
+    def fake_run(cmd, **kwargs):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(_git.subprocess, "run", fake_run)
+    with pytest.raises(_git.GitError, match="isn't valid utf-8"):
+        _git.run("/repo", ["log"])

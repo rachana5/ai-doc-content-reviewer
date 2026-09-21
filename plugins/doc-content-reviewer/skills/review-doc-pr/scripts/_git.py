@@ -30,6 +30,18 @@ def run(repo_path: str, args: list[str]) -> str:
         )
     except subprocess.TimeoutExpired as e:
         raise GitError(f"git {args} timed out after {_TIMEOUT_SECONDS}s") from e
+    except OSError as e:
+        # Covers a missing `git` binary (FileNotFoundError, e.g. a CI image
+        # that never installed it) and other OS-level launch failures
+        # (permissions, etc.) — none of these reach the returncode check
+        # below, since subprocess.run never got far enough to produce a
+        # CompletedProcess at all.
+        raise GitError(f"could not run git {args}: {e}") from e
+    except UnicodeDecodeError as e:
+        # git's output contained bytes that aren't valid `_ENCODING` — real
+        # doc content can carry a mix of encodings, or a binary file's diff
+        # can leak raw bytes through even with capture_output=True.
+        raise GitError(f"git {args} produced output that isn't valid {_ENCODING}: {e}") from e
     if result.returncode != 0:
         raise GitError(result.stderr.strip() or f"git {args} failed")
     return result.stdout.strip()

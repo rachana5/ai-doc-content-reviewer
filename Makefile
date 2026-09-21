@@ -1,6 +1,9 @@
+SKILLS := content-reviewer review-doc-pr
+
 .PHONY: test
 test:
 	@fail=0; \
-	(cd plugins/doc-content-reviewer/skills/content-reviewer && PYTHONPATH=. python3 -m pytest scripts/tests/ -v) || fail=1; \
-	(cd plugins/doc-content-reviewer/skills/review-doc-pr && PYTHONPATH=. python3 -m pytest scripts/tests/ -v) || fail=1; \
+	for skill in $(SKILLS); do \
+		(cd plugins/doc-content-reviewer/skills/$$skill && PYTHONPATH=. python3 -m pytest scripts/tests/ -v) || fail=1; \
+	done; \
 	exit $$fail
