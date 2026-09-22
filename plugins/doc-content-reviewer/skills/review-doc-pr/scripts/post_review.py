@@ -12,8 +12,11 @@ in place. See docs/superpowers/plans/2026-09-17-per-pr-review-skill-plan.md
 under SKILL.md's Step 6 for the full reasoning.
 
 Reuses aggregate.render_report() (content-reviewer's engine, duplicated
-byte-for-byte into this skill — see
-scripts/tests/test_content_reviewer_duplication_sync.py) for the
+byte-for-byte into this skill — kept in sync by
+scripts/tests/test_content_reviewer_duplication_sync.py in the
+ai-doc-content-reviewer source repo, not re-verified from inside hub-doc,
+since that test file is deliberately not copied here — see SKILL.md's
+"Bundled resources" for why) for the
 non-empty case; the empty-findings case is this module's own special case,
 since the mustache-ish template has no conditionals to express "no
 findings" without producing an awkward "0 blocking · 0 suggestions" body.

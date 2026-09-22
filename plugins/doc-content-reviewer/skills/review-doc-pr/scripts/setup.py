@@ -74,6 +74,13 @@ def check_git_status(repo_root: Path) -> tuple[bool, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--skip-git-check", action="store_true",
+        help="Skip the working-tree-dirty check. For callers where it's "
+             "meaningless (e.g. review-doc-pr, which never writes to the "
+             "tree and always runs against a fresh CI checkout) rather "
+             "than printing an advisory warning no one can act on.",
+    )
     args = parser.parse_args(argv)
 
     if not args.check:
@@ -96,8 +103,9 @@ def main(argv: list[str] | None = None) -> int:
         note = "" if present else " (style layer will degrade to agent-only judgment)"
         print(f"[setup] {status}: {tool}{note}")
 
-    git_ok, git_msg = check_git_status(Path.cwd())
-    print(f"[setup] {'OK' if git_ok else 'WARNING'}: {git_msg}")
+    if not args.skip_git_check:
+        git_ok, git_msg = check_git_status(Path.cwd())
+        print(f"[setup] {'OK' if git_ok else 'WARNING'}: {git_msg}")
 
     return 0
 

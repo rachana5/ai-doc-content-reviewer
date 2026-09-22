@@ -65,7 +65,7 @@ checked-out branch.
 ## Step 0: Preflight
 
 ```bash
-PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.setup --check
+PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.setup --check --skip-git-check
 ```
 
 If this fails on Python or `gh` auth, stop and report the exact failure —
@@ -74,7 +74,8 @@ failure message in the run's log is the only diagnostic anyone gets.
 If `vale`/`alex` are reported missing, continue — the style layer degrades
 to agent-only judgment (`references/style-checklist.md`); note this in the
 comment rather than silently treating style as clean. Working-tree-dirty
-is meaningless here (CI checks out the PR fresh) — don't bother checking it.
+is meaningless here (CI checks out the PR fresh) — `--skip-git-check` above skips
+the check itself rather than just telling you to ignore its warning.
 
 ## Step 1: Resolve repo root and traefik-hub source
 
