@@ -31,8 +31,18 @@ no human confirmation anywhere in the pipeline. It runs once and reports.
     (its own `open_pr.py` push is a different, network-bound call site;
     syncing that hardening back was tried once and reverted). Everything
     else in this list below the line IS expected to stay byte-identical
-    with `content-reviewer`'s copy —
-    `scripts/tests/test_content_reviewer_duplication_sync.py` enforces it.
+    with `content-reviewer`'s copy — enforced by
+    `scripts/tests/test_content_reviewer_duplication_sync.py` **in the
+    `ai-doc-content-reviewer` source repo**, not re-verified from inside
+    `hub-doc`. That test file is deliberately not copied here — it asserts
+    a sibling `content-reviewer/` directory that never exists once
+    `review-doc-pr` is standalone in `hub-doc` (see
+    `tools/check_review_doc_pr_sync.py`'s `NOT_COPIED_TO_HUB_DOC` in the
+    source repo for the documented reason).
+  - `pr_filter.py` — decides whether a PR is out of scope (Renovate/
+    dependency-bump PRs) before any layer runs (Step 0b). Not shared with
+    `content-reviewer`, which has no equivalent concept — it always runs
+    against whatever scope a human picked interactively.
   - `_discover.py` — locates the local `traefik-hub` clone the accuracy
     layer reads against (Step 1)
   - `changed_lines.py` — parses the PR diff into per-file changed-line
@@ -76,6 +86,25 @@ to agent-only judgment (`references/style-checklist.md`); note this in the
 comment rather than silently treating style as clean. Working-tree-dirty
 is meaningless here (CI checks out the PR fresh) — `--skip-git-check` above skips
 the check itself rather than just telling you to ignore its warning.
+
+## Step 0b: Skip out-of-scope PRs
+
+```bash
+gh pr view <pr-number> --json author,title --jq '{author: .author.login, title: .title}'
+PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.pr_filter \
+  --author-login <author login from above> --title <title from above>
+```
+
+This skill reviews documentation content. Renovate's dependency-bump PRs
+(author `app/renovate-with-github-actions`, e.g. `chore(deps): ...` /
+`fix(deps): ...`) are infrastructure changes with their own reviewer —
+this repo's `renovate-pr-review` skill — not doc content. If
+`scripts.pr_filter` exits 1 (excluded), **stop here: run no layer, post no
+comment, not even the empty-findings comment.** Running the review anyway
+would either post irrelevant "no issues found" noise on an infra PR or,
+worse, review a dependency bump as if it were documentation. A non-dependency
+`chore:` PR (e.g. this skill's own #1015) is still in scope — only the
+`chore(deps)`/`fix(deps)` prefix is excluded, not `chore:` generally.
 
 ## Step 1: Resolve repo root and traefik-hub source
 

@@ -11,7 +11,7 @@ WORDS_TO_TOKENS = 1.3
 REQUIRED_SCRIPTS = {
     "setup.py", "_discover.py", "changed_lines.py", "_finding.py",
     "check_links.py", "run_style_lint.py", "aggregate.py", "_git.py",
-    "_gh.py", "post_review.py",
+    "_gh.py", "post_review.py", "pr_filter.py",
 }
 REQUIRED_REFERENCES = {
     "accuracy-checklist.md", "style-checklist.md",
