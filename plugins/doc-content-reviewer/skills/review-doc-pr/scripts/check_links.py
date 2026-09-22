@@ -1,0 +1,235 @@
+"""check_links.py — reference layer, mechanical part.
+
+Resolves internal relative links against the filesystem and checks external
+URLs return a non-error status. Network failures are marked unchecked, never
+reported as broken (see spec's error-handling section) — a flaky network
+must never produce a false "dead link" finding.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+from scripts._finding import make_finding
+
+_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+_INLINE_CODE_SPAN_RE = re.compile(r"`[^`]*`")
+
+# Findings from this module never carry real replacement text — a broken
+# link needs a human to identify the correct target/URL, there is no safe
+# machine-generated fix. These must never be auto-applied regardless of how
+# high their confidence is, so every make_finding() call here passes this
+# explicitly rather than relying on the confidence-threshold default.
+_NO_SAFE_AUTOFIX = False
+
+
+_LINK_TITLE_RE = re.compile(r'''\s+(?:"[^"]*"|'[^']*'|\([^)]*\))$''')
+
+
+def _strip_link_title(target: str) -> str:
+    # CommonMark allows an optional title after the URL, e.g.
+    # [text](url "Link title") or [text](url 'Link title') — real content
+    # uses this for accessible link text (see docs/content/index.md in the
+    # traefik/traefik demo fork). Left in, the "url" half of the match
+    # includes the quoted title, which corrupts both internal-path
+    # resolution and (worse) crashes external HEAD requests with
+    # http.client.InvalidURL — an uncaught exception, not the graceful
+    # unchecked-on-network-failure path this module otherwise guarantees.
+    return _LINK_TITLE_RE.sub("", target)
+
+
+def extract_links(markdown_text: str) -> list[tuple[str, int]]:
+    links: list[tuple[str, int]] = []
+    in_fence = False
+    for lineno, line in enumerate(markdown_text.splitlines(), start=1):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        # Strip inline code spans first so link syntax shown as a literal
+        # example (docs-about-docs, config snippets) isn't mistaken for a
+        # real link.
+        searchable = _INLINE_CODE_SPAN_RE.sub("", line)
+        for match in _LINK_RE.finditer(searchable):
+            links.append((_strip_link_title(match.group(1)), lineno))
+    return links
+
+
+def _is_external(target: str) -> bool:
+    return target.startswith("http://") or target.startswith("https://")
+
+
+# Schemes with no filesystem or HTTP target to check — a link like this
+# falling through to check_internal_link (the only other branch) gets
+# joined onto source_file.parent as if it were a relative path, which
+# never exists on disk, producing a guaranteed false "broken link" finding
+# for every single occurrence. Found via mailto: links in real hub-doc
+# content (docs/api-gateway/setup/kubernetes/installation.md).
+_NON_CHECKABLE_SCHEMES = ("mailto:", "tel:")
+
+
+def _is_non_checkable(target: str) -> bool:
+    return target.startswith(_NON_CHECKABLE_SCHEMES)
+
+
+def check_internal_link(link_target: str, source_file: Path, repo_root: Path) -> dict | None:
+    # Strip a #fragment before resolving against the filesystem — "./foo.md#heading"
+    # is a valid link to foo.md, not a literal path ending in "#heading", and a
+    # pure "#heading" same-page anchor has no filesystem target to check at all.
+    #
+    # Known limitation, deliberately not handled: this only verifies the
+    # FILE exists — it never checks that "#heading" is still a real heading
+    # in that file. Verifying that would mean reproducing the target site
+    # generator's slug algorithm (Docusaurus and MkDocs each slugify
+    # headings differently), and getting that wrong would produce new false
+    # "broken anchor" positives — worse than the current gap. Left as an
+    # explicit, documented limitation rather than a best-effort heuristic.
+    path_part, _, _fragment = link_target.partition("#")
+    if not path_part:
+        return None
+    # A root-relative link ("/docs/foo.md") resolves against repo_root, not
+    # the source file's directory — joining an absolute path onto
+    # source_file.parent would silently discard the parent (pathlib drops
+    # everything before an absolute right-hand operand) and resolve against
+    # the filesystem root instead, false-flagging every root-relative link
+    # as broken.
+    if path_part.startswith("/"):
+        resolved = (repo_root / path_part.lstrip("/")).resolve()
+    else:
+        resolved = (source_file.parent / path_part).resolve()
+    if resolved.exists():
+        return None
+    return make_finding(
+        layer="reference", file=str(source_file), line=0,
+        quote=link_target,
+        reasoning=f"Relative link target does not exist on disk: {resolved}",
+        suggested_fix="(needs a human to identify the correct target)",
+        severity="blocking", confidence=0.95, auto_fixable=_NO_SAFE_AUTOFIX,
+    )
+
+
+# urllib's default User-Agent ("Python-urllib/x.y") gets a flat 403 from
+# some sites' bot protection (confirmed against https://traefik.io itself —
+# curl with a browser UA gets a clean 308 redirect, urllib with no UA gets
+# 403). Without this, every link into such a domain reads as "broken"
+# regardless of the retry-on-403 logic below, since the GET retry would hit
+# the same UA-based block. A generic browser UA is enough to pass; this
+# isn't trying to impersonate a specific browser, just avoid looking like a
+# bot to a WAF that only checks for one.
+_USER_AGENT = "Mozilla/5.0 (compatible; doc-content-reviewer-link-check/1.0)"
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # Confirmed against a real doc link (hub.traefik.io): urllib follows
+    # redirects by default, all the way through a dashboard's OAuth login
+    # flow, and judges the link "broken" based on wherever that chain
+    # happens to land (a 404 at the auth boundary) — not whether the link
+    # itself resolves. A 3xx response IS a working link (that's what a
+    # redirect to a login-gated page looks like for any anonymous client,
+    # docs reader included); it should never be chased. Returning None here
+    # tells urllib not to follow — the 3xx then surfaces as an HTTPError
+    # that check_external_link's `else: return None` branch below already
+    # treats as "not broken," so no other change was needed.
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def _http_head(url: str, timeout: float):
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
+    return _opener.open(request, timeout=timeout)
+
+
+def _http_get(url: str, timeout: float):
+    request = urllib.request.Request(url, method="GET", headers={"User-Agent": _USER_AGENT})
+    return _opener.open(request, timeout=timeout)
+
+
+def _broken_link_finding(url: str, status: int) -> dict:
+    return make_finding(
+        layer="reference", file="", line=0, quote=url,
+        reasoning=f"External URL returned HTTP {status}",
+        suggested_fix="(needs a human to find the current URL)",
+        severity="blocking", confidence=0.9, auto_fixable=_NO_SAFE_AUTOFIX,
+    )
+
+
+def check_external_link(url: str, *, timeout: float = 10.0) -> dict | None:
+    try:
+        response = _http_head(url, timeout)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (403, 405):
+            # Some servers reject HEAD outright (GitHub and various
+            # CDN-fronted doc sites among them) while GET works fine —
+            # retry before concluding the link is actually broken.
+            try:
+                response = _http_get(url, timeout)
+            except urllib.error.HTTPError as exc2:
+                if 400 <= exc2.code < 600:
+                    return _broken_link_finding(url, exc2.code)
+                return None
+            except OSError:
+                return None
+        elif 400 <= exc.code < 600:
+            return _broken_link_finding(url, exc.code)
+        else:
+            return None
+    except OSError:
+        # Network unreachable, DNS failure, timeout, etc. — unchecked, not broken.
+        return None
+    status = getattr(response, "status", 200)
+    if 400 <= status < 600:
+        return _broken_link_finding(url, status)
+    return None
+
+
+def run(target_files: list[Path], repo_root: Path) -> list[dict]:
+    findings: list[dict] = []
+    # Cache external-link results per URL for this run: the same third-party
+    # reference commonly appears across many pages, and re-checking it once
+    # per occurrence multiplies slow network calls and rate-limit risk for
+    # no benefit — the answer doesn't change within a single run.
+    external_cache: dict[str, dict | None] = {}
+    for file in target_files:
+        text = file.read_text()
+        for target, lineno in extract_links(text):
+            if _is_non_checkable(target):
+                continue
+            if _is_external(target):
+                if target not in external_cache:
+                    external_cache[target] = check_external_link(target)
+                cached = external_cache[target]
+                # Copy before annotating with this occurrence's file/line —
+                # the same cached dict is reused across every occurrence of
+                # this URL, so mutating it in place would corrupt earlier
+                # occurrences' recorded locations.
+                finding = dict(cached) if cached is not None else None
+            else:
+                finding = check_internal_link(target, file, repo_root)
+            if finding is not None:
+                finding["file"] = str(file)
+                finding["line"] = lineno
+                findings.append(finding)
+    return findings
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("files", nargs="+")
+    parser.add_argument("--repo-root", required=True)
+    args = parser.parse_args(argv)
+    findings = run([Path(f) for f in args.files], Path(args.repo_root))
+    print(json.dumps(findings))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

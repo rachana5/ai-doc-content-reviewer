@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        skill: [content-reviewer, review-doc-pr]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: pip install pytest
+      - name: Run tests
+        run: |
+          cd plugins/doc-content-reviewer/skills/${{ matrix.skill }}
+          PYTHONPATH=. python3 -m pytest scripts/tests/ -v
+
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        skill: [content-reviewer, review-doc-pr]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pyflakes
+        run: pip install pyflakes
+      - name: Run pyflakes
+        run: python -m pyflakes plugins/doc-content-reviewer/skills/${{ matrix.skill }}/scripts/
+
+  # Only unit-tests check_review_doc_pr_sync.py's own comparison logic
+  # against synthetic fixtures. It does NOT run `make sync-check` against
+  # a real traefik/hub-doc checkout -- that needs a second repo checked
+  # out side by side, which isn't wired up here (same scope as the
+  # equivalent job in ai-ws-hub-doc-pr-generator's own ci.yml, which this
+  # mirrors). Real cross-repo verification stays a manual
+  # `make sync-check HUB_DOC_ROOT=<path>` step until/unless that's built.
+  test-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: pip install pytest pyflakes
+      - name: Run tests
+        run: PYTHONPATH=. python3 -m pytest tools/tests/ -v
+      - name: Run pyflakes
+        run: python -m pyflakes tools/
