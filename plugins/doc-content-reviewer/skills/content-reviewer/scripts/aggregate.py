@@ -1,4 +1,4 @@
-"""aggregate.py — merges the four layers' findings into one sorted, deduped
+"""aggregate.py — merges the review layers' findings into one sorted, deduped
 list, then renders the review report.
 
 Dedup key is (file, line, quote): two layers flagging the same location collapse
