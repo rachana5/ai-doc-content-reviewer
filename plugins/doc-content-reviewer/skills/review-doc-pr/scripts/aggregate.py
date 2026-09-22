@@ -129,6 +129,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", default=None, help="date for report metadata")
     parser.add_argument("--mode", default=None, help="mode for report metadata")
     parser.add_argument("--layers-run", dest="layers_run", default=None, help="layers run for report metadata")
+    parser.add_argument(
+        "--quiet", action="store_true",
+        help="Don't print the rendered report. For callers where this "
+             "module's own output is never shown to anyone and would be "
+             "actively misleading if it were: this render has no severity "
+             "cap applied (a caller-specific post-processing step, e.g. "
+             "review-doc-pr's cap_severity_outside_diff, runs after this "
+             "CLI returns, not before), so its printed blocking/suggestion "
+             "counts can disagree with whatever's actually delivered "
+             "downstream.",
+    )
     args = parser.parse_args(argv)
 
     def _load(path: str | None) -> list[dict]:
@@ -158,7 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.layers_run is not None:
         metadata["layers_run"] = args.layers_run
 
-    print(render_report(merged, template_text, metadata))
+    if not args.quiet:
+        print(render_report(merged, template_text, metadata))
     return 0
 
 

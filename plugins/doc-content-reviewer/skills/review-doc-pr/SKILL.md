@@ -134,9 +134,15 @@ Each layer loads its own checklist — `references/accuracy-checklist.md`,
 `references/clarity-checklist.md`, `references/completeness-checklist.md`
 — and writes its own JSON file, same schema as `content-reviewer`
 (`references/finding-schema.md`), same mechanical-then-judgment merge
-pattern for style/reference (run `check_links.py`/`run_style_lint.py`
-first, then append the checklist's own judgment findings to that same list
-before writing it). Completeness has no mechanical part — write
+pattern for style/reference — run `check_links.py`/`run_style_lint.py`
+first, **unwrap `run_style_lint.py`'s output** (`{"findings": [...],
+"vale_ran": ..., "alex_ran": ...}` — a dict, not a list; `check_links.py`
+prints a bare list instead, so the two aren't interchangeable), then append
+the checklist's own judgment findings to that unwrapped list before writing
+it. Skipping the unwrap and writing `run_style_lint.py`'s raw stdout as
+`style.json` fails `_finding.py`'s validation immediately (loud failure,
+per design, but avoid burning a retry cycle on it). Completeness has no
+mechanical part — write
 `completeness.json` directly, same as accuracy/clarity, and set every
 finding's `severity` to `suggestion` and `auto_fixable` to `false`
 (the checklist's own calibration caps confidence below the auto-fix
@@ -183,8 +189,19 @@ dropped; capped findings still appear in the comment.
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.aggregate \
   --accuracy <accuracy.json> --style <style.json> --reference <reference.json> --clarity <clarity.json> \
   --completeness <completeness.json> \
-  --template templates/pr-comment.md.tmpl --out <merged.json>
+  --template templates/pr-comment.md.tmpl --out <merged.json> --quiet
 ```
+
+**Always pass `--quiet`.** Without it, this command prints a fully
+rendered, comment-shaped report to stdout as a side effect — but it's
+built from the *uncapped* `merged` list (this step, per its own line
+below, does not apply the Step 4 cap), so its blocking/suggestion counts
+can read differently from what Step 6 actually posts. Confirmed on a real
+dry run (`hub-doc#991`): this step printed "6 blocking · 9 suggestions,"
+the real posted comment correctly said "0 blocking · 15 suggestions."
+`merged.json` on disk is correct either way — `--quiet` only silences the
+misleading console echo, a real debugging trap for anyone reading this
+step's raw log output and mistaking it for final.
 
 No `--mode`/`--layers-run` flags — those describe `content-reviewer`'s two
 modes, which don't exist here; `templates/pr-comment.md.tmpl` doesn't
