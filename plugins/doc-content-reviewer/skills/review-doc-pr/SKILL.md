@@ -6,9 +6,9 @@ allowed-tools: "Read Grep Glob Bash(python3:*) Bash(git:*) Bash(gh:*) Bash(vale:
 
 # review-doc-pr
 
-Runs `content-reviewer`'s four review layers — accuracy, style, reference,
-clarity — over one PR's changed doc files and posts the findings as a
-single PR comment. See
+Runs `content-reviewer`'s five review layers — accuracy, style, reference,
+clarity, completeness — over one PR's changed doc files and posts the
+findings as a single PR comment. See
 `docs/superpowers/plans/2026-09-17-per-pr-review-skill-plan.md` (in the
 `automation` workspace) for the full design history and decisions this
 SKILL.md implements.
@@ -16,7 +16,7 @@ SKILL.md implements.
 **This is not `content-reviewer`.** It shares that skill's engine (finding
 schema, checklists, mechanical checkers, aggregation) as byte-identical
 duplicated files — see "Bundled resources" — but the shape is different in
-every way that matters: no mode to detect (always all four layers), no
+every way that matters: no mode to detect (always all five layers), no
 scope to ask about (always the PR's own changed files), no fixes, no PR,
 no human confirmation anywhere in the pipeline. It runs once and reports.
 
@@ -47,8 +47,8 @@ no human confirmation anywhere in the pipeline. It runs once and reports.
   - `_gh.py` — subprocess wrapper around the `gh` CLI, used only by
     `post_review.py` (Step 6). Byte-identical with `content-reviewer`'s
     copy — generic, no reason to diverge the way `_git.py` does.
-- References: `${CLAUDE_SKILL_DIR}/references/*.md` — same five files
-  `content-reviewer` uses (`finding-schema.md` + the four checklists),
+- References: `${CLAUDE_SKILL_DIR}/references/*.md` — same six files
+  `content-reviewer` uses (`finding-schema.md` + the five checklists),
   byte-identical duplicates, same sync test as above.
 - Templates: `${CLAUDE_SKILL_DIR}/templates/pr-comment.md.tmpl` — **not**
   shared with `content-reviewer` at all; this is `review-doc-pr`'s own,
@@ -112,7 +112,7 @@ the diff are outside every layer's job here; skip them.
 
 ## Step 3: Run every layer, per the scope rules below
 
-Unlike `content-reviewer` (which picks layers by mode), **all four layers
+Unlike `content-reviewer` (which picks layers by mode), **all five layers
 always run.** But they don't all see the same text — this is the one rule
 that has no equivalent in `content-reviewer`'s own `SKILL.md`:
 
@@ -123,18 +123,24 @@ that has no equivalent in `content-reviewer`'s own `SKILL.md`:
 | Reference — judgment (missing crosslinks) | Whole file | Same drift-detection logic as accuracy. |
 | Style | Diff-scoped (changed lines only, via `changed_lines.py`) | No drift-detection upside to re-litigating prose the PR didn't touch. |
 | Clarity | Diff-scoped (changed lines only) | Same reasoning as style. |
+| Completeness | Whole file | A missing migration note, missing troubleshooting pointer, or asymmetric treatment can live anywhere on the page, not just in changed lines — same free-value reasoning as accuracy. |
 
 For a brand-new file, the whole diff is "added," so diff-scoped and
 whole-file scope end up identical automatically — no special-casing needed.
 
 Each layer loads its own checklist — `references/accuracy-checklist.md`,
 `references/style-checklist.md`, `references/reference-checklist.md`,
-`references/clarity-checklist.md` — and writes its own JSON file, same
-schema as `content-reviewer` (`references/finding-schema.md`), same
-mechanical-then-judgment merge pattern for style/reference (run
-`check_links.py`/`run_style_lint.py` first, then append the checklist's
-own judgment findings to that same list before writing it). **Validate
-every layer file before proceeding:**
+`references/clarity-checklist.md`, `references/completeness-checklist.md`
+— and writes its own JSON file, same schema as `content-reviewer`
+(`references/finding-schema.md`), same mechanical-then-judgment merge
+pattern for style/reference (run `check_links.py`/`run_style_lint.py`
+first, then append the checklist's own judgment findings to that same list
+before writing it). Completeness has no mechanical part — write
+`completeness.json` directly, same as accuracy/clarity, and set every
+finding's `severity` to `suggestion` and `auto_fixable` to `false`
+(the checklist's own calibration caps confidence below the auto-fix
+threshold anyway, but set both explicitly). **Validate every layer file
+before proceeding:**
 
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts._finding <layer>.json
@@ -148,13 +154,19 @@ same location instead (same category Step 1 uses for a missing source) —
 degrade that one finding, never fail the whole layer or the whole run over
 one bad JSON object.
 
-**Cost note (open item, not blocking):** whole-file accuracy + reference-
-judgment are real LLM calls, and this retry budget draws from the *same*
-per-PR cost cap once one exists — see the plan doc's "Open items" section.
-No numeric cap is wired up yet; this paragraph exists so whoever adds one
-doesn't treat retries as free.
+**Cost note (open item, not blocking):** whole-file accuracy, reference-
+judgment, and completeness are all real LLM calls, and this retry budget
+draws from the *same* per-PR cost cap once one exists — see the plan doc's
+"Open items" section. No numeric cap is wired up yet, and no size-based
+gate exists yet either (e.g. skipping completeness on a small PR to keep
+cost down) — this paragraph exists so whoever adds either doesn't treat
+retries, or completeness specifically, as free in the meantime.
 
 ## Step 4: Cap severity for out-of-diff findings
+
+Completeness findings are already always `suggestion` (set in Step 3), so
+this cap never has anything to lower for that layer — it only changes
+behavior for accuracy/reference-judgment findings outside the diff.
 
 Before aggregating: for every accuracy/reference-judgment finding whose
 `line` falls outside `changed_lines.py`'s ranges for that file, force
@@ -169,6 +181,7 @@ dropped; capped findings still appear in the comment.
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.aggregate \
   --accuracy <accuracy.json> --style <style.json> --reference <reference.json> --clarity <clarity.json> \
+  --completeness <completeness.json> \
   --template templates/pr-comment.md.tmpl --out <merged.json>
 ```
 

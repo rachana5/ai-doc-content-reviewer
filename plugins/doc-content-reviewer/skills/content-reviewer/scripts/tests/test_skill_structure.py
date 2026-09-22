@@ -16,6 +16,7 @@ REQUIRED_SCRIPTS = {
 REQUIRED_REFERENCES = {
     "accuracy-checklist.md", "style-checklist.md",
     "reference-checklist.md", "clarity-checklist.md", "finding-schema.md",
+    "completeness-checklist.md",
 }
 
 

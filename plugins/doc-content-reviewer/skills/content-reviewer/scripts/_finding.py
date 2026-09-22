@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 
-VALID_LAYERS = {"accuracy", "style", "reference", "clarity"}
+VALID_LAYERS = {"accuracy", "style", "reference", "clarity", "completeness"}
 VALID_SEVERITIES = {"blocking", "suggestion"}
 AUTO_FIX_THRESHOLD = 0.8
 

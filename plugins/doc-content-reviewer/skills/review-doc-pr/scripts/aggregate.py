@@ -121,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--style", default=None)
     parser.add_argument("--reference", default=None)
     parser.add_argument("--clarity", default=None)
+    parser.add_argument("--completeness", default=None)
     parser.add_argument("--template", required=True)
     parser.add_argument("--out", required=True, help="path to write merged findings JSON")
     parser.add_argument("--repo", default=None, help="repository name for report metadata")
@@ -138,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     layer_findings = {
         "accuracy": _load(args.accuracy), "style": _load(args.style),
         "reference": _load(args.reference), "clarity": _load(args.clarity),
+        "completeness": _load(args.completeness),
     }
     merged = aggregate(layer_findings)
     Path(args.out).write_text(json.dumps(merged))

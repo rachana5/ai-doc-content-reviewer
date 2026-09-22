@@ -14,6 +14,7 @@ def test_all_layer_checklists_exist():
     expected = {
         "accuracy-checklist.md", "style-checklist.md",
         "reference-checklist.md", "clarity-checklist.md",
+        "completeness-checklist.md",
     }
     actual = {p.name for p in REFERENCES_DIR.glob("*-checklist.md")}
     assert expected == actual
