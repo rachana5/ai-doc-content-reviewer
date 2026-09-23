@@ -74,6 +74,26 @@ def test_dedup_escalates_severity_even_when_the_severe_finding_has_lower_confide
     assert merged[0]["severity"] == "blocking"
 
 
+def test_dedup_updates_auto_fixable_alongside_the_winning_confidence():
+    # auto_fixable describes the SAME winning finding as reasoning/
+    # suggested_fix/confidence -- leaving it on the loser's stale value
+    # produces an internally inconsistent merged finding (a high-confidence,
+    # real suggested_fix marked non-auto-fixable).
+    a = make_finding(
+        layer="style", file="docs/foo.md", line=10, quote="q", reasoning="r1",
+        suggested_fix="s1", severity="suggestion", confidence=0.5, auto_fixable=False,
+    )
+    b = make_finding(
+        layer="accuracy", file="docs/foo.md", line=10, quote="q", reasoning="r2",
+        suggested_fix="s2", severity="suggestion", confidence=0.95, auto_fixable=True,
+    )
+    merged = aggregate.dedup_findings([a, b])
+    assert len(merged) == 1
+    assert merged[0]["confidence"] == 0.95
+    assert merged[0]["suggested_fix"] == "s2"
+    assert merged[0]["auto_fixable"] is True
+
+
 def test_sort_findings_orders_by_file_then_line():
     a = _f("style", "docs/b.md", 5)
     b = _f("style", "docs/a.md", 20)

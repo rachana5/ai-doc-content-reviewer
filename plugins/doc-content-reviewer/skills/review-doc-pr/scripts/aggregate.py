@@ -41,11 +41,17 @@ def dedup_findings(findings: list[dict]) -> list[dict]:
             existing = by_location[key]
             if finding["layer"] not in existing["layers"]:
                 existing["layers"].append(finding["layer"])
-            # Keep the higher-confidence reasoning/suggested_fix when merging.
+            # Keep the higher-confidence reasoning/suggested_fix/auto_fixable
+            # when merging -- all three describe the SAME winning finding,
+            # so adopting reasoning/suggested_fix from it while leaving
+            # auto_fixable stuck on the loser's stale value produces an
+            # internally inconsistent finding (a high-confidence, real
+            # suggested_fix marked non-auto-fixable, or vice versa).
             if finding["confidence"] > existing["confidence"]:
                 existing["reasoning"] = finding["reasoning"]
                 existing["suggested_fix"] = finding["suggested_fix"]
                 existing["confidence"] = finding["confidence"]
+                existing["auto_fixable"] = finding["auto_fixable"]
             # Severity escalates independently of confidence -- a low-confidence
             # "blocking" flag from one layer must not get silently buried under
             # a higher-confidence "suggestion" from another.

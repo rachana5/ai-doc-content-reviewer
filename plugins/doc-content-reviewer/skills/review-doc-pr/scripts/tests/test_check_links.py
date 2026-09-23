@@ -257,6 +257,20 @@ def test_run_aggregates_findings_across_files(tmp_path, monkeypatch):
     assert findings[0]["file"] == str(doc)
 
 
+def test_run_degrades_gracefully_on_undecodable_file(tmp_path, capsys):
+    # A C-locale CI box would otherwise decode via ASCII, raising a raw
+    # UnicodeDecodeError on any non-ASCII byte (accented names, smart
+    # quotes, emoji are all routine in doc content) instead of degrading
+    # gracefully like every other failure mode in this module.
+    bad = tmp_path / "bad.md"
+    bad.write_bytes(b"\xff\xfe not valid utf-8")
+    good = tmp_path / "good.md"
+    good.write_text("no links here\n")
+    findings = check_links.run([bad, good], tmp_path)
+    assert findings == []
+    assert "[check_links] WARNING: could not read" in capsys.readouterr().out
+
+
 def test_run_caches_external_link_checks_across_files(tmp_path, monkeypatch):
     # The same third-party reference commonly appears on many pages —
     # re-checking it once per occurrence multiplies network calls for no

@@ -43,3 +43,15 @@ def test_run_converts_a_timeout_expiry_into_gherror(monkeypatch):
     monkeypatch.setattr(_gh.subprocess, "run", fake_run)
     with pytest.raises(_gh.GhError, match="timed out"):
         _gh.run(["pr", "comment"])
+
+
+def test_run_converts_a_missing_gh_binary_into_gherror(monkeypatch):
+    # A CI image that never installed gh raises FileNotFoundError (an
+    # OSError subclass) before subprocess.run produces any CompletedProcess
+    # at all -- same class of gap _git.py is already hardened against.
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "gh")
+
+    monkeypatch.setattr(_gh.subprocess, "run", fake_run)
+    with pytest.raises(_gh.GhError, match="could not run gh"):
+        _gh.run(["pr", "view"])

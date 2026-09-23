@@ -58,6 +58,24 @@ def test_render_comment_nonempty_delegates_to_aggregate_render_report():
     assert "docs/a.md:1" in body
 
 
+def test_render_comment_embeds_a_custom_marker_on_empty_findings():
+    # --marker previously only changed what has_existing_comment searches
+    # for, never what actually got posted -- a marker bump would silently
+    # keep embedding the old sentinel, breaking "fires once per PR" the
+    # moment the marker is ever changed.
+    body = post_review.render_comment([], "irrelevant", marker="<!-- review-doc-pr:v2 -->")
+    assert "<!-- review-doc-pr:v2 -->" in body
+    assert post_review.MARKER not in body
+
+
+def test_render_comment_embeds_a_custom_marker_on_nonempty_findings():
+    template = f"## report\n{{{{#findings}}}}{{{{file}}}}{{{{/findings}}}}\n{post_review.MARKER}\n"
+    findings = [_finding(file="docs/a.md", line=1, severity="blocking", layers=["accuracy"])]
+    body = post_review.render_comment(findings, template, marker="<!-- review-doc-pr:v2 -->")
+    assert "<!-- review-doc-pr:v2 -->" in body
+    assert post_review.MARKER not in body
+
+
 def test_has_existing_comment_true_when_marker_present(monkeypatch):
     monkeypatch.setattr(
         post_review._gh, "run",

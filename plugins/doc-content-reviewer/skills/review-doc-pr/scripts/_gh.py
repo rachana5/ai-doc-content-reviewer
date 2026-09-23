@@ -22,6 +22,13 @@ def run(args: list[str]) -> str:
         )
     except subprocess.TimeoutExpired as e:
         raise GhError(f"gh {args} timed out after {_TIMEOUT_SECONDS}s") from e
+    except OSError as e:
+        # A missing gh binary (FileNotFoundError, e.g. a CI image that
+        # never installed it) and other OS-level launch failures never
+        # reach the returncode check below -- subprocess.run didn't get
+        # far enough to produce a CompletedProcess at all. Same class of
+        # gap _git.py is already hardened against.
+        raise GhError(f"could not run gh {args}: {e}") from e
     if result.returncode != 0:
         raise GhError(result.stderr.strip() or f"gh {args} failed")
     return result.stdout.strip()

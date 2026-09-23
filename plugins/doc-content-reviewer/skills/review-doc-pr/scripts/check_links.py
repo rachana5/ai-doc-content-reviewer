@@ -222,7 +222,18 @@ def run(target_files: list[Path], repo_root: Path) -> list[dict]:
     # no benefit — the answer doesn't change within a single run.
     external_cache: dict[str, dict | None] = {}
     for file in target_files:
-        text = file.read_text()
+        try:
+            # Pin the encoding explicitly: a C-locale CI box (LANG=C / no
+            # locale configured, common on minimal container images) would
+            # otherwise decode via ASCII instead of UTF-8 -- a raw
+            # UnicodeDecodeError on any non-ASCII byte in doc content
+            # (accented names, smart quotes, emoji are all routine here)
+            # instead of degrading gracefully like every other failure mode
+            # in this module.
+            text = file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"[check_links] WARNING: could not read {file} ({exc!r}) — skipping this file, continuing")
+            continue
         for target, lineno in extract_links(text):
             if _is_non_checkable(target):
                 continue

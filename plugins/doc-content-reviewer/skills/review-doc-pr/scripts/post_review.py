@@ -51,9 +51,12 @@ def cap_severity_outside_diff(
     (see the plan's "Severity cap for out-of-diff findings" section) — the
     whole-file accuracy/reference scan's value is surfacing drift the PR
     happens to touch, not making an unrelated pre-existing issue this PR's
-    problem to fix. Style/clarity findings can never be outside their own
-    diff-only scope to begin with, so this has no effect on them; nothing
-    needs to check `layer`/`layers` to tell the difference.
+    problem to fix. This cap applies uniformly to every finding regardless
+    of layer -- nothing needs to check `layer`/`layers` to tell the
+    difference. That includes style/clarity: run_style_lint.py actually
+    scans the whole file (vale/alex have no notion of "just these lines"),
+    so a style finding CAN land outside the diff -- it still gets capped
+    to `suggestion` by this same generic check, it isn't exempted.
 
     Must run before render_report() is called (whether that's from this
     module or from an `aggregate` CLI invocation upstream of it) --
@@ -70,13 +73,22 @@ def cap_severity_outside_diff(
     return capped
 
 
-def render_comment(findings: list[dict], template_text: str) -> str:
+def render_comment(findings: list[dict], template_text: str, marker: str = MARKER) -> str:
     """The zero-findings special case the mustache-ish template can't
     express on its own (see module docstring); anything non-empty just
-    delegates to the already-reused aggregate.render_report()."""
-    if not findings:
-        return _EMPTY_BODY
-    return aggregate.render_report(findings, template_text)
+    delegates to the already-reused aggregate.render_report().
+
+    `marker` defaults to MARKER; both _EMPTY_BODY and the template file
+    embed MARKER as a literal string (there's no {{marker}} placeholder
+    to substitute), so a non-default marker is swapped in with a targeted
+    string replace afterward. Without this, a caller passing --marker to
+    bump the sentinel would change what has_existing_comment searches for
+    without changing what actually gets posted -- the idempotency check
+    and the posted body silently disagreeing on the marker."""
+    body = _EMPTY_BODY if not findings else aggregate.render_report(findings, template_text)
+    if marker != MARKER:
+        body = body.replace(MARKER, marker)
+    return body
 
 
 def has_existing_comment(repo: str, pr: str, marker: str = MARKER) -> bool:
@@ -122,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     changed_ranges = json.loads(Path(args.changed_lines).read_text())
     findings = cap_severity_outside_diff(findings, changed_ranges)
     template_text = Path(args.template).read_text()
-    body = render_comment(findings, template_text)
+    body = render_comment(findings, template_text, args.marker)
 
     if args.dry_run:
         print(body)
