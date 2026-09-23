@@ -62,6 +62,7 @@ _DUPLICATED_SCRIPTS = (
 _DUPLICATED_REFERENCES = (
     "finding-schema.md", "accuracy-checklist.md", "style-checklist.md",
     "reference-checklist.md", "clarity-checklist.md",
+    "completeness-checklist.md",
 )
 
 
