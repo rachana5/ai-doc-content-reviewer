@@ -57,7 +57,7 @@ def test_run_invokes_vale_and_alex_when_present(tmp_path, monkeypatch):
     doc.write_text("You should utilize this.")
     monkeypatch.setattr(run_style_lint, "check_lint_tools", lambda repo_root: {"vale": True, "alex": True})
 
-    def fake_subprocess_run(cmd, capture_output, text):
+    def fake_subprocess_run(cmd, capture_output, text, **kwargs):
         if cmd[0] == "vale":
             return mock.Mock(returncode=0, stdout=VALE_SAMPLE.replace("docs/foo.md", str(doc)), stderr="")
         if cmd[0] == "alex":
@@ -69,6 +69,40 @@ def test_run_invokes_vale_and_alex_when_present(tmp_path, monkeypatch):
     assert result["vale_ran"] is True
     assert result["alex_ran"] is True
     assert len(result["findings"]) == 2
+
+
+def test_run_passes_a_timeout_to_vale_and_alex(tmp_path, monkeypatch):
+    # A hung vale/alex invocation must not block the CI job forever --
+    # confirm both subprocess.run call sites actually pass the timeout,
+    # not just that the module defines one.
+    doc = tmp_path / "foo.md"
+    doc.write_text("hello")
+    monkeypatch.setattr(run_style_lint, "check_lint_tools", lambda repo_root: {"vale": True, "alex": True})
+    captured = {}
+
+    def fake_subprocess_run(cmd, capture_output, text, **kwargs):
+        captured[cmd[0]] = kwargs.get("timeout")
+        return mock.Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(run_style_lint.subprocess, "run", fake_subprocess_run)
+    run_style_lint.run([doc], tmp_path)
+    assert captured["vale"] == run_style_lint._LINT_TIMEOUT_SECONDS
+    assert captured["alex"] == run_style_lint._LINT_TIMEOUT_SECONDS
+
+
+def test_run_degrades_gracefully_when_vale_times_out(tmp_path, monkeypatch, capsys):
+    doc = tmp_path / "foo.md"
+    doc.write_text("hello")
+    monkeypatch.setattr(run_style_lint, "check_lint_tools", lambda repo_root: {"vale": True, "alex": False})
+
+    def fake_subprocess_run(cmd, capture_output, text, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(run_style_lint.subprocess, "run", fake_subprocess_run)
+    result = run_style_lint.run([doc], tmp_path)
+    assert result["vale_ran"] is True
+    assert result["findings"] == []
+    assert "[run_style_lint] WARNING: vale failed on" in capsys.readouterr().out
 
 
 def test_main_prints_json_result(tmp_path, monkeypatch, capsys):
@@ -87,7 +121,7 @@ def test_run_degrades_gracefully_when_vale_subprocess_crashes(tmp_path, monkeypa
     doc.write_text("hello")
     monkeypatch.setattr(run_style_lint, "check_lint_tools", lambda repo_root: {"vale": True, "alex": False})
 
-    def fake_subprocess_run(cmd, capture_output, text):
+    def fake_subprocess_run(cmd, capture_output, text, **kwargs):
         if cmd[0] == "vale":
             raise subprocess.CalledProcessError(1, cmd, output="Vale crashed")
         raise AssertionError(f"unexpected command {cmd}")
@@ -110,7 +144,7 @@ def test_run_degrades_gracefully_when_alex_returns_malformed_json(tmp_path, monk
     doc.write_text("hello")
     monkeypatch.setattr(run_style_lint, "check_lint_tools", lambda repo_root: {"vale": False, "alex": True})
 
-    def fake_subprocess_run(cmd, capture_output, text):
+    def fake_subprocess_run(cmd, capture_output, text, **kwargs):
         if cmd[0] == "alex":
             # Return malformed JSON
             return mock.Mock(returncode=0, stdout='{"invalid": json}', stderr="")
@@ -137,7 +171,7 @@ def test_run_continues_processing_other_files_when_one_fails(tmp_path, monkeypat
 
     call_count = {"vale": 0}
 
-    def fake_subprocess_run(cmd, capture_output, text):
+    def fake_subprocess_run(cmd, capture_output, text, **kwargs):
         if cmd[0] == "vale":
             call_count["vale"] += 1
             if call_count["vale"] == 1:

@@ -75,6 +75,55 @@ def test_validate_finding_reports_bad_confidence_range():
     assert any("confidence" in e for e in errors)
 
 
+def test_validate_finding_reports_auto_fixable_true_below_threshold():
+    # finding-schema.md: "auto_fixable: true only when confidence >= 0.8".
+    # Hand-authored findings (accuracy/clarity/completeness write JSON
+    # directly, not through make_finding()) can set both fields
+    # independently of each other -- nothing upstream stops this.
+    f = make_finding(
+        layer="accuracy", file="f.md", line=1, quote="q", reasoning="r",
+        suggested_fix="s", severity="blocking", confidence=0.3,
+        auto_fixable=True,
+    )
+    errors = validate_finding(f)
+    assert any("auto_fixable" in e and "confidence" in e for e in errors)
+
+
+def test_validate_finding_allows_auto_fixable_false_regardless_of_confidence():
+    f = make_finding(
+        layer="accuracy", file="f.md", line=1, quote="q", reasoning="r",
+        suggested_fix="s", severity="blocking", confidence=0.3,
+        auto_fixable=False,
+    )
+    assert validate_finding(f) == []
+
+
+def test_validate_finding_rejects_completeness_finding_with_blocking_severity():
+    f = make_finding(
+        layer="completeness", file="f.md", line=1, quote="q", reasoning="r",
+        suggested_fix="s", severity="blocking", confidence=0.5, auto_fixable=False,
+    )
+    errors = validate_finding(f)
+    assert any("completeness" in e and "severity" in e for e in errors)
+
+
+def test_validate_finding_rejects_completeness_finding_with_auto_fixable_true():
+    f = make_finding(
+        layer="completeness", file="f.md", line=1, quote="q", reasoning="r",
+        suggested_fix="s", severity="suggestion", confidence=0.5, auto_fixable=True,
+    )
+    errors = validate_finding(f)
+    assert any("completeness" in e and "auto_fixable" in e for e in errors)
+
+
+def test_validate_finding_passes_for_well_formed_completeness_finding():
+    f = make_finding(
+        layer="completeness", file="f.md", line=1, quote="q", reasoning="r",
+        suggested_fix="s", severity="suggestion", confidence=0.7, auto_fixable=False,
+    )
+    assert validate_finding(f) == []
+
+
 def test_main_validates_json_file_of_findings(tmp_path, capsys):
     findings = [make_finding(
         layer="accuracy", file="f.md", line=1, quote="q", reasoning="r",

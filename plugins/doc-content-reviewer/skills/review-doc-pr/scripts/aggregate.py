@@ -4,7 +4,9 @@ list, then renders the review report.
 Dedup key is (file, line, quote): two layers flagging the same location collapse
 into one entry that lists both layers, rather than the reader seeing the
 same sentence flagged twice. Sort is by location, not by layer, because
-that's how a diff actually reads.
+that's how a diff actually reads. Severity always escalates to the more
+severe of the two on merge, independent of confidence -- see
+_SEVERITY_RANK and dedup_findings' inline comment.
 """
 from __future__ import annotations
 
@@ -12,6 +14,12 @@ import argparse
 import json
 import re
 from pathlib import Path
+
+# Merge always escalates to the more severe finding, independent of
+# confidence: this is an advisory, never-blocks-merge comment, so a false
+# "blocking" costs a reader a shrug while a silently-downgraded real
+# blocker defeats the point of the blocking_count line entirely.
+_SEVERITY_RANK = {"suggestion": 0, "blocking": 1}
 
 
 def dedup_findings(findings: list[dict]) -> list[dict]:
@@ -38,6 +46,11 @@ def dedup_findings(findings: list[dict]) -> list[dict]:
                 existing["reasoning"] = finding["reasoning"]
                 existing["suggested_fix"] = finding["suggested_fix"]
                 existing["confidence"] = finding["confidence"]
+            # Severity escalates independently of confidence -- a low-confidence
+            # "blocking" flag from one layer must not get silently buried under
+            # a higher-confidence "suggestion" from another.
+            if _SEVERITY_RANK[finding["severity"]] > _SEVERITY_RANK[existing["severity"]]:
+                existing["severity"] = finding["severity"]
     return list(by_location.values())
 
 

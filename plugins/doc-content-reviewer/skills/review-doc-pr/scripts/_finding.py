@@ -50,6 +50,35 @@ def validate_finding(finding: dict) -> list[str]:
         c = finding["confidence"]
         if not isinstance(c, (int, float)) or not (0.0 <= c <= 1.0):
             errors.append(f"confidence must be a number in [0, 1], got {c!r}")
+    # finding-schema.md: "auto_fixable: true only when confidence >= 0.8".
+    # make_finding() derives this automatically when auto_fixable isn't
+    # passed explicitly, but hand-authored findings (accuracy/clarity/
+    # completeness write JSON directly, not through make_finding()) can set
+    # both fields independently -- nothing upstream of this validator
+    # stops a low-confidence finding from claiming auto_fixable: true.
+    if (
+        finding.get("auto_fixable") is True
+        and isinstance(finding.get("confidence"), (int, float))
+        and finding["confidence"] < AUTO_FIX_THRESHOLD
+    ):
+        errors.append(
+            f"auto_fixable is true but confidence ({finding['confidence']!r}) "
+            f"is below AUTO_FIX_THRESHOLD ({AUTO_FIX_THRESHOLD})"
+        )
+    # SKILL.md's completeness step: "every finding's severity is suggestion
+    # and auto_fixable is false" -- there's no ground truth to confirm a
+    # completeness finding against, only a repo convention or a plausible
+    # reader question, so it must never be treated as a mechanically-safe
+    # auto-apply the way a high-confidence accuracy fix can be.
+    if finding.get("layer") == "completeness":
+        if "severity" in finding and finding["severity"] != "suggestion":
+            errors.append(
+                f"completeness findings must have severity 'suggestion', got {finding['severity']!r}"
+            )
+        if "auto_fixable" in finding and finding["auto_fixable"] is not False:
+            errors.append(
+                f"completeness findings must have auto_fixable false, got {finding['auto_fixable']!r}"
+            )
     return errors
 
 

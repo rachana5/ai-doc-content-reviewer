@@ -16,6 +16,11 @@ from pathlib import Path
 from scripts._finding import make_finding
 from scripts.setup import check_lint_tools
 
+# Without a timeout, a hung vale/alex invocation (a pathological input file,
+# a vale rule that tries a network call) blocks the whole CI run forever
+# instead of degrading gracefully like every other failure mode here does.
+_LINT_TIMEOUT_SECONDS = 30
+
 
 def parse_vale_json(raw_json: str, *, file: str) -> list[dict]:
     data = json.loads(raw_json)
@@ -63,6 +68,7 @@ def run(target_files: list[Path], repo_root: Path) -> dict:
             try:
                 result = subprocess.run(
                     ["vale", "--output=JSON", str(file)], capture_output=True, text=True,
+                    timeout=_LINT_TIMEOUT_SECONDS,
                 )
                 if result.stdout.strip():
                     findings.extend(parse_vale_json(result.stdout, file=str(file)))
@@ -74,6 +80,7 @@ def run(target_files: list[Path], repo_root: Path) -> dict:
             try:
                 result = subprocess.run(
                     ["alex", "--json", str(file)], capture_output=True, text=True,
+                    timeout=_LINT_TIMEOUT_SECONDS,
                 )
                 if result.stdout.strip():
                     findings.extend(parse_alex_json(result.stdout, file=str(file)))

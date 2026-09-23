@@ -2,13 +2,26 @@
 from __future__ import annotations
 import subprocess
 
+# Without a timeout, a stalled `gh` invocation (the GitHub API hanging, or
+# `gh` itself blocking on interactive re-auth in a non-interactive CI
+# environment) blocks forever instead of failing fast -- this is the
+# only network-writing call site in review-doc-pr's unattended CI run
+# (post_review.py posts the PR comment through here), so a hang here wedges
+# the whole job rather than surfacing as a reported error.
+_TIMEOUT_SECONDS = 30
+
 
 class GhError(RuntimeError):
     pass
 
 
 def run(args: list[str]) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, timeout=_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise GhError(f"gh {args} timed out after {_TIMEOUT_SECONDS}s") from e
     if result.returncode != 0:
         raise GhError(result.stderr.strip() or f"gh {args} failed")
     return result.stdout.strip()
