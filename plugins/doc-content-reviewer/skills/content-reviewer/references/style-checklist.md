@@ -20,11 +20,16 @@ corpus, or — where no such source exists yet — reports an inconsistency
 without asserting which side is correct. This distinction is not optional;
 it's the difference between catching drift and quietly enforcing it.
 
-- **The `hub-doc-pr-generator` plugin's `style-guide.md`, if that plugin is
-  installed alongside this one**, is an authoritative, corpus-independent
-  source on the same footing as a Vale rule or the Reader ID — check
-  `plugins/hub-doc-pr-generator/skills/hub-doc-pr-generator/references/style-guide.md`
-  for a match before falling back to lower-confidence judgment calls. It
+- **The `hub-doc-pr-generator` skill's `style-guide.md`, if that skill is
+  embedded in the same repo being reviewed**, is an authoritative,
+  corpus-independent source on the same footing as a Vale rule or the
+  Reader ID — check
+  `.claude/skills/hub-doc-pr-generator/references/style-guide.md` (relative
+  to the target repo's root, e.g. `hub-doc`, where that skill is embedded
+  the same way this one is — not the `plugins/hub-doc-pr-generator/...`
+  path that only exists in the canonical `ai-ws-hub-doc-pr-generator`
+  source repo) for a match before falling back to lower-confidence
+  judgment calls. It
   covers punctuation substitution patterns (an em dash disguised as a colon
   or semicolon is still the banned pattern), ungrounded category references
   ("standard X" with only one or two examples), sentences that depend on a
