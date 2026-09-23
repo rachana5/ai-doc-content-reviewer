@@ -1,6 +1,5 @@
 # scripts/tests/test_apply_fixes.py
 from __future__ import annotations
-from pathlib import Path
 from scripts._finding import make_finding
 from scripts import apply_fixes
 
