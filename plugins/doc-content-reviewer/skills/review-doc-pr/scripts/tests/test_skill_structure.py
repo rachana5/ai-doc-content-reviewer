@@ -9,9 +9,9 @@ MAX_SKILL_LINES = 500
 WORDS_TO_TOKENS = 1.3
 
 REQUIRED_SCRIPTS = {
-    "setup.py", "_finding.py", "check_links.py", "run_style_lint.py",
-    "aggregate.py", "apply_fixes.py", "open_pr.py", "_git.py", "_gh.py",
-    "_discover.py",
+    "setup.py", "_discover.py", "changed_lines.py", "_finding.py",
+    "check_links.py", "run_style_lint.py", "aggregate.py", "_git.py",
+    "_gh.py", "post_review.py", "pr_filter.py",
 }
 REQUIRED_REFERENCES = {
     "accuracy-checklist.md", "style-checklist.md",
@@ -34,7 +34,7 @@ def _frontmatter(text: str) -> dict:
 def test_skill_md_exists_and_has_frontmatter():
     assert SKILL_MD.exists()
     fm = _frontmatter(SKILL_MD.read_text())
-    assert fm["name"] == "content-reviewer"
+    assert fm["name"] == "review-doc-pr"
     assert "description" in fm and len(fm["description"]) > 20
 
 
@@ -57,18 +57,32 @@ def test_skill_md_references_every_reference_file():
         assert ref in text, f"SKILL.md never mentions {ref}"
 
 
-def test_skill_md_documents_both_modes():
+def test_skill_md_documents_once_only_trigger_and_marker_semantics():
     text = SKILL_MD.read_text().lower()
-    assert "full review" in text
-    assert "targeted check" in text
+    assert "once" in text
+    assert "marker" in text
+    # the specific contradiction fixed 2026-09-21 must stay fixed
+    assert "skip" in text and "edit-in-place" in text
 
 
-def test_skill_md_documents_pr_gate():
+def test_skill_md_documents_never_blocks_merge():
     text = SKILL_MD.read_text().lower()
-    assert "open a pr" in text or "open_pr" in text
-    assert "confirm" in text or "explicit" in text
+    assert "never applies fixes" in text or "read-only" in text
+    assert "never blocks merge" in text or "advisory" in text
+
+
+def test_skill_md_does_not_document_a_pr_gate():
+    """Unlike content-reviewer, review-doc-pr never opens a PR -- this
+    would be a real regression if it crept back in."""
+    text = SKILL_MD.read_text().lower()
+    assert "open a pr with these changes" not in text
+
+
+def test_skill_md_documents_per_layer_scope_split():
+    text = SKILL_MD.read_text().lower()
+    assert "whole file" in text
+    assert "diff-scoped" in text or "changed lines" in text
 
 
 def test_templates_exist():
-    assert (SKILL_DIR / "templates" / "review-report.md.tmpl").exists()
-    assert (SKILL_DIR / "templates" / "pr-body.md.tmpl").exists()
+    assert (SKILL_DIR / "templates" / "pr-comment.md.tmpl").exists()

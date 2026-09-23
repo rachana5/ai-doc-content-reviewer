@@ -1,0 +1,19 @@
+## Content review — {{blocking_count}} blocking · {{suggestion_count}} suggestions
+
+Automated review against source and style rules. Nothing here blocks merge — address what's relevant, then this PR goes through its normal review as usual.
+
+{{#findings}}
+<details>
+<summary><code>{{file}}:{{line}}</code> — [{{layers}}] ({{severity}}) {{reasoning}}</summary>
+
+> {{quote}}
+
+**Suggested fix:**
+{{suggested_fix}}
+
+</details>
+
+{{/findings}}
+<!-- review-doc-pr:v1 -->
+
+<sub>To verify or act on a finding in a separate session, fetch this comment's raw body via `gh` (e.g. `gh api repos/<owner>/<repo>/issues/comments/<id>`) rather than a browser — every finding above is fully present in the raw text regardless of which sections are collapsed.</sub>

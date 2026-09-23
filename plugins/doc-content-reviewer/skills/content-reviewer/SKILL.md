@@ -6,9 +6,9 @@ allowed-tools: "AskUserQuestion Read Grep Glob Bash(python3:*) Bash(git:*) Bash(
 
 # content-reviewer
 
-Audits existing documentation content across four independent layers —
-accuracy, style, reference, clarity — and produces one report with
-confidence-gated auto-fix and an optional PR. See
+Audits existing documentation content across five independent layers —
+accuracy, style, reference, clarity, completeness — and produces one report
+with confidence-gated auto-fix and an optional PR. See
 `docs/superpowers/specs/2026-08-28-content-reviewer-design.md` for the full
 design rationale.
 
@@ -22,7 +22,8 @@ design rationale.
   - `_finding.py` — the shared finding schema, plus a validator CLI (Step 3)
   - `check_links.py` — reference layer, mechanical part (Step 3)
   - `run_style_lint.py` — style layer, mechanical part (Step 3)
-  - `aggregate.py` — merges layer findings into one report (Step 4)
+  - `aggregate.py` — merges layer findings into one report (Step 4, now
+    five layers)
   - `apply_fixes.py` — stages/applies confidence-gated fixes (Step 5)
   - `open_pr.py` — branch/commit/push/PR, only after explicit confirm (Step 6)
 - References: `${CLAUDE_SKILL_DIR}/references/*.md` — load only the file(s)
@@ -81,14 +82,16 @@ Classify the user's request:
 
 - **Full review** — a path/section named with no narrow technical term.
   Examples: "review the getting-started section," "audit
-  docs/api-gateway/middlewares." → run **all four layers** against every
+  docs/api-gateway/middlewares." → run **all five layers** against every
   file in scope.
 - **Targeted check** — a specific claim/term/parameter named. Examples:
   "check docs for mentions of maxRetries against source code," "is the
   rate-limiting default documented correctly?" → run only the layer(s) the
   question implicates (accuracy, almost always; reference joins if
   links/citations are the actual ask), scoped to just the files/paragraphs
-  mentioning that term — not the whole section.
+  mentioning that term — not the whole section. **Never run `completeness`
+  here** — it's a page-level judgment (does this page give the reader
+  everything they need), not something a single-claim question implicates.
 
 If genuinely ambiguous which mode applies, ask the user rather than
 guessing at scope.
@@ -118,6 +121,14 @@ scratch directory. For each layer that applies (per Step 2):
    the combined result as `reference.json`.
 4. **Clarity** — load `references/clarity-checklist.md`. Agent-only, no
    mechanical part — write `clarity.json` directly, same as accuracy.
+5. **Completeness** (full review mode only) — load
+   `references/completeness-checklist.md`. Agent-only, no mechanical part.
+   Read the target content plus whatever it links to (the reference page,
+   any linked prerequisite section), then write `completeness.json`
+   directly, same as accuracy/clarity. Every finding's `severity` is
+   `suggestion` and `auto_fixable` is `false` — the checklist's own
+   confidence calibration never goes above 0.8, so this falls out
+   naturally, but set both explicitly rather than relying on that.
 
 **Before moving to Step 4, validate every layer file you just wrote:**
 ```bash
@@ -135,6 +146,7 @@ silently vanishing from the report.
 ```bash
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.aggregate \
   --accuracy <accuracy.json> --style <style.json> --reference <reference.json> --clarity <clarity.json> \
+  --completeness <completeness.json> \
   --template templates/review-report.md.tmpl --out <merged.json> \
   --repo <hub-doc|traefik> --scope <the-path-or-topic-from-step-1> \
   --date <today's-date> --mode <"full review"|"targeted check"> \

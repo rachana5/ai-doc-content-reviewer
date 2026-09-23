@@ -1,0 +1,173 @@
+# Style layer checklist
+
+Goal: catch style-guide and consistency violations that Vale/alex (the
+mechanical part of this layer, already run before you see this) can't catch
+on their own — the qualitative rules.
+
+## What this layer does NOT need to re-check
+
+Don't re-derive Vale/alex's own rules (wordiness, passive-voice patterns
+they already catch, insensitive terms) — those findings arrive pre-computed.
+This pass is for what a linter structurally can't judge.
+
+## What to check — and the one rule that governs all of it
+
+**Never treat "how the rest of the doc set does it" as evidence of what's
+correct.** The doc set is exactly what this skill exists to check — it may
+itself be inconsistent, and "most pages do X" is not proof X is right. Every
+item below either checks against a source genuinely independent of the
+corpus, or — where no such source exists yet — reports an inconsistency
+without asserting which side is correct. This distinction is not optional;
+it's the difference between catching drift and quietly enforcing it.
+
+- **The `hub-doc-pr-generator` plugin's `style-guide.md`, if that plugin is
+  installed alongside this one**, is an authoritative, corpus-independent
+  source on the same footing as a Vale rule or the Reader ID — check
+  `plugins/hub-doc-pr-generator/skills/hub-doc-pr-generator/references/style-guide.md`
+  for a match before falling back to lower-confidence judgment calls. It
+  covers punctuation substitution patterns (an em dash disguised as a colon
+  or semicolon is still the banned pattern), ungrounded category references
+  ("standard X" with only one or two examples), sentences that depend on a
+  term defined many paragraphs earlier on the same page, `id`/`ID` vs.
+  "identifier" in prose, multi-item exceptions that bury the action instead
+  of leading with it, a table followed by a prose list that re-breaks
+  down the same rows by another dimension, narrative/dramatizing framing
+  ("this record doesn't stand alone…") in place of a plain statement, a
+  vague placeholder subject ("something," "this") where a concrete noun
+  already established on the page (often by a diagram or table) should be
+  named instead, a worked example presented as if it were the feature's
+  scope rather than flagged as illustrative, configuration specifics
+  (field names, exact values, "where to set this") sitting in a concept
+  page's intro instead of its Prerequisites or reference section, one
+  sentence describing a behavior as if it were uniform when it actually
+  differs across two or more distinct cases (e.g. a dependency's first
+  failure vs. a later failure after it already succeeded once), a field's
+  default/minimum/behavior flattened to a single value when it actually
+  varies by a sub-option the reader already chose elsewhere (a storage
+  backend, an auth method), a trade-off toggle documented only by what it
+  turns on without saying when to use it or the risk of leaving it on,
+  "here"/"this link" as link text instead of naming the destination, a
+  config field referred to by the plain English word it shares ("a store")
+  instead of its exact field name (`` `store` ``), and a technical shorthand
+  or idiom ("mint an assertion," "strip a header at the edge") used without
+  a plain-language equivalent or a definition on first use, a positional
+  reference ("as shown above," "the example above") that requires the reader
+  to have already scrolled past another part of the page — a reader who
+  lands mid-page from a search result or an anchor link has nothing "above"
+  to refer back to — contrast framing ("it's not just a wrapper, it's a
+  complete toolkit") where the negated half adds no information over stating
+  the positive claim directly, and a UI element described by its screen
+  position ("the button on the left") instead of its label — a layout gets
+  redesigned and the direction goes stale in a way a label doesn't. If that
+  plugin isn't installed, treat these as ordinary style judgment calls at the
+  usual 0.5–0.84 band instead.
+- **Narrated code**: prose that restates what an adjacent, readable code block
+  already shows ("The code below imports the library and initializes a
+  client") is a real-confidence finding — compare the sentence against the
+  code block it describes rather than judging the sentence in isolation. The
+  fix is not deletion alone: check whether the sentence should instead explain
+  *why* the code does this, not *what* it does, before flagging it as pure
+  filler.
+- **Callout stacking**: two callouts immediately adjacent, with no body prose
+  between them, is a real-confidence finding — this is directly observable in
+  the doc's structure, not a judgment call. When you see it, also check
+  whether either callout is explaining *why* the instruction next to it
+  matters; if so, the fix is usually to fold it into that sentence rather
+  than just adding prose as a spacer between the two callouts.
+- **Diagrams**: a Mermaid diagram with a node wrapped in a `click` directive is
+  a real-confidence finding, not a style nitpick — that link bypasses this
+  repo's build-time link checker entirely, so a stale path fails silently
+  instead of failing CI. Same treatment for a diagram immediately preceded by
+  prose that paraphrases its node labels instead of reusing them verbatim; the
+  point of the diagram is lost if the sentence above it uses different words
+  for the same things. Also check a diagram depicting an established
+  multi-step process (an OIDC sign-in redirect, an mTLS handshake) against
+  any diagram of that same flow already published elsewhere in the doc set —
+  a new diagram that compresses it into a few different-looking arrows is a
+  real-confidence finding, not a style nitpick, since a shortened version is
+  often wrong in a way the full version isn't; this overlaps with the
+  accuracy layer's own source-verification check (see accuracy-checklist.md)
+  and either layer catching it is fine.
+- **Multi-step chained examples**: when a page numbers steps in headings
+  (`### Step 2: ...`) backed by code examples with their own identifiers (a
+  Kubernetes `metadata.name`, a config key), check that the identifier's
+  number matches its heading, and that every later reference to that step by
+  number — a final wiring example, a callout that says "on step N" — agrees
+  with both. A mismatch here is a real-confidence finding: the numbers are
+  checkable directly against each other, independent of corpus or judgment.
+- **Terminology consistency**: check the **target repo's own** Vale config
+  first — `.github/vale/traefik/*.yml` may already encode a canonical term
+  via Vale's `Substitution` rule type, and `run_style_lint.py` will have
+  already surfaced any violation of that as a mechanical finding (real
+  authority, real confidence).
+  **If no Vale rule covers the term**, do not resolve it by majority usage.
+  Report the inconsistency itself — "this page uses both X and Y for what
+  looks like the same concept, and no Vale rule or documented glossary says
+  which is canonical" — as a low-confidence, suggestion-only finding with
+  no `suggested_fix` that picks a winner. A human decides; this checklist
+  flags, it doesn't silently enforce whichever term is more common.
+- **Voice**: second person ("you configure...") not first person plural
+  ("we recommend...") — this standard comes from the Reader ID's own
+  definition (direct, task-oriented address), not from how other pages
+  currently write. A page that's already first-person elsewhere is not
+  evidence that first-person is acceptable — report it anyway, with real
+  confidence, since the Reader ID is the independent standard here.
+- **Structural convention**: headings in sentence case, code blocks fenced
+  with a language tag — these are checkable against Markdown/Docusaurus
+  conventions independent of the corpus, so report them with real
+  confidence. Parameter-table column order is different: there is no
+  documented "established order" yet (that's part of the doc-type taxonomy
+  retrofit that hasn't landed) — if you notice inconsistent column order
+  across pages, report the inconsistency at low confidence, same treatment
+  as uncovered terminology. Don't invent an authoritative order and enforce
+  it as if one existed.
+
+## Confidence calibration
+
+- 0.85+: a violation against a genuinely **authoritative, corpus-independent**
+  source — a Vale rule, the Reader ID's own definition, or a documented
+  Markdown/Docusaurus convention. Never corpus-majority usage on its own.
+- 0.5–0.84: either a stylistic judgment call a human writer might reasonably
+  disagree with, **or** an inconsistency you've noticed with no
+  authoritative source to resolve which side is correct — in the latter
+  case, report the inconsistency, not a corrected term, and keep
+  `suggested_fix` free of an asserted "right" answer.
+- Below 0.5: don't report it — this isn't a case for a low-confidence flag,
+  it's noise.
+
+## Examples
+
+**Confident, authoritative source (Reader ID, not corpus):**
+
+**Doc text:** "We recommend you utilize the retry middleware for this."
+**Reasoning:** first-person voice; the Reader ID calls for second-person,
+task-oriented address — independent of what any other page does.
+
+```json
+{
+  "layer": "style",
+  "quote": "We recommend you utilize the retry middleware for this.",
+  "reasoning": "First-person voice ('We recommend') instead of second person, per the Reader ID's direct, task-oriented address standard.",
+  "suggested_fix": "Use the retry middleware for this.",
+  "severity": "suggestion",
+  "confidence": 0.85
+}
+```
+
+**Uncovered terminology — flag the inconsistency, don't pick a winner:**
+
+**Doc text:** "Configure the rate-limit plugin here."
+**Reasoning:** this doc set also calls the same mechanism "middleware"
+elsewhere, and no Vale rule or documented glossary says which is canonical.
+
+```json
+{
+  "layer": "style",
+  "quote": "Configure the rate-limit plugin here.",
+  "reasoning": "This doc set uses both 'plugin' and 'middleware' for what appears to be the same concept, and no Vale rule or documented glossary establishes which is canonical — flagging for a human to resolve, not asserting 'plugin' is wrong.",
+  "suggested_fix": "(needs a human to decide the canonical term)",
+  "severity": "suggestion",
+  "confidence": 0.6,
+  "auto_fixable": false
+}
+```

@@ -1,6 +1,5 @@
 # scripts/tests/test_open_pr.py
 from __future__ import annotations
-from unittest import mock
 
 from scripts import open_pr
 
