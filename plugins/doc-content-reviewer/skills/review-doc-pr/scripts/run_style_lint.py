@@ -72,7 +72,12 @@ def run(target_files: list[Path], repo_root: Path) -> dict:
                 )
                 if result.stdout.strip():
                     findings.extend(parse_vale_json(result.stdout, file=str(file)))
-            except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
+            # KeyError included: a vale/alex JSON shape change (a renamed
+            # field) would otherwise raise uncaught from parse_vale_json/
+            # parse_alex_json's direct dict indexing, crashing the whole
+            # run instead of degrading gracefully like every other failure
+            # mode here.
+            except (subprocess.SubprocessError, OSError, json.JSONDecodeError, KeyError) as exc:
                 print(f"[run_style_lint] WARNING: vale failed on {file} ({exc!r}) — skipping this file for vale, continuing")
 
     if tools["alex"]:
@@ -84,7 +89,12 @@ def run(target_files: list[Path], repo_root: Path) -> dict:
                 )
                 if result.stdout.strip():
                     findings.extend(parse_alex_json(result.stdout, file=str(file)))
-            except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
+            # KeyError included: a vale/alex JSON shape change (a renamed
+            # field) would otherwise raise uncaught from parse_vale_json/
+            # parse_alex_json's direct dict indexing, crashing the whole
+            # run instead of degrading gracefully like every other failure
+            # mode here.
+            except (subprocess.SubprocessError, OSError, json.JSONDecodeError, KeyError) as exc:
                 print(f"[run_style_lint] WARNING: alex failed on {file} ({exc!r}) — skipping this file for alex, continuing")
 
     return {"findings": findings, "vale_ran": tools["vale"], "alex_ran": tools["alex"]}

@@ -12,6 +12,16 @@ def test_extract_links_finds_markdown_links_with_line_numbers():
     assert links == [("./foo.md", 2), ("https://example.com", 4)]
 
 
+def test_extract_links_does_not_truncate_url_with_literal_parens():
+    # CommonMark allows one level of nested parens in an unquoted link
+    # destination -- a naive [^)]+ capture stops at the first ")", silently
+    # truncating the rest of the URL (and the closing paren stays unmatched
+    # in the source text).
+    text = "See [wiki](https://en.wikipedia.org/wiki/Foo_(bar)) for details.\n"
+    links = check_links.extract_links(text)
+    assert links == [("https://en.wikipedia.org/wiki/Foo_(bar)", 1)]
+
+
 def test_http_head_and_get_send_a_user_agent(monkeypatch):
     # Confirmed against a real site (traefik.io): urllib's default
     # "Python-urllib/x.y" User-Agent gets a flat 403 from bot protection
@@ -202,6 +212,28 @@ def test_is_non_checkable_recognizes_mailto_and_tel():
     assert check_links._is_non_checkable("tel:+15555555555") is True
     assert check_links._is_non_checkable("./foo.md") is False
     assert check_links._is_non_checkable("https://example.com") is False
+
+
+def test_is_non_checkable_recognizes_protocol_relative_links():
+    # "//cdn.example.com/foo.js" has no filesystem target -- without this,
+    # it falls through to check_internal_link, which joins it onto
+    # repo_root (it starts with "/") and guarantees a false "broken link."
+    assert check_links._is_non_checkable("//cdn.example.com/foo.js") is True
+
+
+def test_is_non_checkable_recognizes_non_http_schemes():
+    # ftp:/data:/etc. have the same failure mode as mailto:/tel: -- not
+    # http(s), so _is_external misses them, and not a real relative path,
+    # so check_internal_link guarantees a false "broken link."
+    assert check_links._is_non_checkable("ftp://files.example.com/doc.pdf") is True
+    assert check_links._is_non_checkable("data:text/plain;base64,aGk=") is True
+
+
+def test_is_non_checkable_does_not_swallow_root_relative_internal_links():
+    # "/docs/foo.md" must stay internal (resolved against repo_root by
+    # check_internal_link) -- it must not be mistaken for a non-checkable
+    # scheme or a protocol-relative link.
+    assert check_links._is_non_checkable("/docs/foo.md") is False
 
 
 def test_run_skips_mailto_links_instead_of_false_flagging_as_broken(tmp_path):

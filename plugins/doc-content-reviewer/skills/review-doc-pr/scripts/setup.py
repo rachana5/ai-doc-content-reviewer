@@ -13,6 +13,12 @@ from pathlib import Path
 
 MIN_PYTHON = (3, 11)
 
+# Without a timeout/OSError handling, a stalled `gh`/`git` invocation or a
+# missing binary raises uncaught (subprocess.TimeoutExpired, FileNotFoundError)
+# instead of the graceful (False, message) every other preflight check here
+# returns -- crashing the whole preflight step over one advisory check.
+_PREFLIGHT_TIMEOUT_SECONDS = 30
+
 
 def check_python_version(version_info: tuple[int, int, int] | None = None) -> tuple[bool, str]:
     version_info = version_info or sys.version_info[:3]
@@ -22,7 +28,15 @@ def check_python_version(version_info: tuple[int, int, int] | None = None) -> tu
 
 
 def check_gh_auth() -> tuple[bool, str]:
-    result = subprocess.run(["gh", "auth", "status"], capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"], capture_output=True, text=True,
+            timeout=_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"gh auth status timed out after {_PREFLIGHT_TIMEOUT_SECONDS}s"
+    except OSError as e:
+        return False, f"could not run gh: {e}"
     if result.returncode == 0:
         return True, "gh authenticated"
     return False, "gh not authenticated — run `gh auth login`"
@@ -57,10 +71,15 @@ def check_git_status(repo_root: Path) -> tuple[bool, str]:
     changes once they're both sitting in the same diff. Flag it, don't stop
     the run over it — the user may have a perfectly good reason to be
     mid-edit already."""
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "status", "--porcelain"],
-        capture_output=True, text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return True, "git status timed out — skipping working-tree check"
+    except OSError as e:
+        return True, f"could not run git ({e}) — skipping working-tree check"
     if result.returncode != 0:
         # Not a git repo, or git itself failed — a different, earlier step
         # (repo detection) is responsible for catching that; this check has

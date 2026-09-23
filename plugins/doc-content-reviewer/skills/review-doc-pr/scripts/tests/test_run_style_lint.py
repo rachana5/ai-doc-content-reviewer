@@ -105,6 +105,27 @@ def test_run_degrades_gracefully_when_vale_times_out(tmp_path, monkeypatch, caps
     assert "[run_style_lint] WARNING: vale failed on" in capsys.readouterr().out
 
 
+def test_run_degrades_gracefully_when_vale_json_shape_changes(tmp_path, monkeypatch, capsys):
+    # A vale version bump renaming a field (e.g. "Line" -> "line") makes
+    # parse_vale_json's direct dict indexing raise KeyError -- this must be
+    # caught like every other failure mode here, not crash the whole run.
+    doc = tmp_path / "foo.md"
+    doc.write_text("hello")
+    monkeypatch.setattr(run_style_lint, "check_lint_tools", lambda repo_root: {"vale": True, "alex": False})
+
+    def fake_subprocess_run(cmd, capture_output, text, **kwargs):
+        if cmd[0] == "vale":
+            # Valid JSON, but missing the "Line" key parse_vale_json expects.
+            return mock.Mock(returncode=0, stdout=json.dumps({"docs/foo.md": [{"Message": "x"}]}), stderr="")
+        raise AssertionError(f"unexpected command {cmd}")
+
+    monkeypatch.setattr(run_style_lint.subprocess, "run", fake_subprocess_run)
+    result = run_style_lint.run([doc], tmp_path)
+    assert result["vale_ran"] is True
+    assert result["findings"] == []
+    assert "[run_style_lint] WARNING: vale failed on" in capsys.readouterr().out
+
+
 def test_main_prints_json_result(tmp_path, monkeypatch, capsys):
     doc = tmp_path / "foo.md"
     doc.write_text("hello")

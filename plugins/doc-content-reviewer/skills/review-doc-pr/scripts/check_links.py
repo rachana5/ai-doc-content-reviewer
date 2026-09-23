@@ -16,7 +16,12 @@ from pathlib import Path
 
 from scripts._finding import make_finding
 
-_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+# The target group allows one level of balanced parens so a URL containing
+# a literal "(" / ")" (real-world example: a Wikipedia-style URL, or a path
+# segment with a parenthetical) isn't truncated at the first ")" — matching
+# CommonMark, which allows one level of nested parens in an unquoted link
+# destination.
+_LINK_RE = re.compile(r"\[[^\]]*\]\(((?:[^()]|\([^()]*\))*)\)")
 _INLINE_CODE_SPAN_RE = re.compile(r"`[^`]*`")
 
 # Findings from this module never carry real replacement text — a broken
@@ -72,9 +77,28 @@ def _is_external(target: str) -> bool:
 # content (docs/api-gateway/setup/kubernetes/installation.md).
 _NON_CHECKABLE_SCHEMES = ("mailto:", "tel:")
 
+# Any OTHER explicit scheme (ftp:, data:, etc.) has the exact same failure
+# mode as mailto:/tel: above -- it's not http(s), so _is_external misses
+# it, and it's not a real filesystem path, so check_internal_link
+# guarantees a false "broken link." This module has no way to check a
+# non-http(s) scheme's target, so treat any of them as non-checkable
+# rather than silently mis-resolving as a relative path.
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+
 
 def _is_non_checkable(target: str) -> bool:
-    return target.startswith(_NON_CHECKABLE_SCHEMES)
+    if target.startswith(_NON_CHECKABLE_SCHEMES):
+        return True
+    if target.startswith("//"):
+        # Protocol-relative (e.g. "//cdn.example.com/foo.js") -- an
+        # explicit external reference with no filesystem target, same
+        # reasoning as the schemes above; distinct from a root-relative
+        # internal link ("/docs/foo.md"), which check_internal_link
+        # already resolves against repo_root correctly.
+        return True
+    if _SCHEME_RE.match(target) and not _is_external(target):
+        return True
+    return False
 
 
 def check_internal_link(link_target: str, source_file: Path, repo_root: Path) -> dict | None:
