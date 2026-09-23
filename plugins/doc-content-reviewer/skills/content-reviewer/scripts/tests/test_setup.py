@@ -1,4 +1,5 @@
 from __future__ import annotations
+import subprocess
 import sys
 from pathlib import Path
 from unittest import mock
@@ -35,6 +36,38 @@ def test_check_gh_auth_fails_when_not_logged_in(monkeypatch):
     ok, msg = setup.check_gh_auth()
     assert ok is False
     assert "gh auth login" in msg
+
+
+def test_check_gh_auth_passes_a_timeout(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return mock.Mock(returncode=0, stdout="Logged in", stderr="")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    setup.check_gh_auth()
+    assert captured["timeout"] == setup._PREFLIGHT_TIMEOUT_SECONDS
+
+
+def test_check_gh_auth_degrades_gracefully_on_timeout(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_gh_auth()
+    assert ok is False
+    assert "timed out" in msg
+
+
+def test_check_gh_auth_degrades_gracefully_when_gh_missing(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "gh")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_gh_auth()
+    assert ok is False
+    assert "could not run gh" in msg
 
 
 def test_check_lint_tools_detects_missing_binaries(monkeypatch, tmp_path):
@@ -101,6 +134,40 @@ def test_check_git_status_ok_when_not_a_git_repo(monkeypatch, tmp_path):
     )
     ok, msg = setup.check_git_status(tmp_path)
     assert ok is True
+
+
+def test_check_git_status_passes_a_timeout(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return mock.Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    setup.check_git_status(tmp_path)
+    assert captured["timeout"] == setup._PREFLIGHT_TIMEOUT_SECONDS
+
+
+def test_check_git_status_ok_on_timeout(monkeypatch, tmp_path):
+    # Advisory-only, per this check's own docstring: a hung git call must
+    # degrade the same way "not a git repository" already does, not crash.
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_git_status(tmp_path)
+    assert ok is True
+    assert "timed out" in msg
+
+
+def test_check_git_status_ok_when_git_missing(monkeypatch, tmp_path):
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "git")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_git_status(tmp_path)
+    assert ok is True
+    assert "could not run git" in msg
 
 
 def test_main_check_exits_zero_when_all_ok(monkeypatch):

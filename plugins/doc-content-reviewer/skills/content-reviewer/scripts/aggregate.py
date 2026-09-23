@@ -4,7 +4,9 @@ list, then renders the review report.
 Dedup key is (file, line, quote): two layers flagging the same location collapse
 into one entry that lists both layers, rather than the reader seeing the
 same sentence flagged twice. Sort is by location, not by layer, because
-that's how a diff actually reads.
+that's how a diff actually reads. Severity always escalates to the more
+severe of the two on merge, independent of confidence -- see
+_SEVERITY_RANK and dedup_findings' inline comment.
 """
 from __future__ import annotations
 
@@ -12,6 +14,12 @@ import argparse
 import json
 import re
 from pathlib import Path
+
+# Merge always escalates to the more severe finding, independent of
+# confidence: this is an advisory, never-blocks-merge comment, so a false
+# "blocking" costs a reader a shrug while a silently-downgraded real
+# blocker defeats the point of the blocking_count line entirely.
+_SEVERITY_RANK = {"suggestion": 0, "blocking": 1}
 
 
 def dedup_findings(findings: list[dict]) -> list[dict]:
@@ -33,11 +41,22 @@ def dedup_findings(findings: list[dict]) -> list[dict]:
             existing = by_location[key]
             if finding["layer"] not in existing["layers"]:
                 existing["layers"].append(finding["layer"])
-            # Keep the higher-confidence reasoning/suggested_fix when merging.
+            # Keep the higher-confidence reasoning/suggested_fix/auto_fixable
+            # when merging -- all three describe the SAME winning finding,
+            # so adopting reasoning/suggested_fix from it while leaving
+            # auto_fixable stuck on the loser's stale value produces an
+            # internally inconsistent finding (a high-confidence, real
+            # suggested_fix marked non-auto-fixable, or vice versa).
             if finding["confidence"] > existing["confidence"]:
                 existing["reasoning"] = finding["reasoning"]
                 existing["suggested_fix"] = finding["suggested_fix"]
                 existing["confidence"] = finding["confidence"]
+                existing["auto_fixable"] = finding["auto_fixable"]
+            # Severity escalates independently of confidence -- a low-confidence
+            # "blocking" flag from one layer must not get silently buried under
+            # a higher-confidence "suggestion" from another.
+            if _SEVERITY_RANK[finding["severity"]] > _SEVERITY_RANK[existing["severity"]]:
+                existing["severity"] = finding["severity"]
     return list(by_location.values())
 
 
