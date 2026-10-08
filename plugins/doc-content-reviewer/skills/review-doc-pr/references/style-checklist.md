@@ -63,7 +63,19 @@ it's the difference between catching drift and quietly enforcing it.
   complete toolkit") where the negated half adds no information over stating
   the positive claim directly, and a UI element described by its screen
   position ("the button on the left") instead of its label — a layout gets
-  redesigned and the direction goes stale in a way a label doesn't. If that
+  redesigned and the direction goes stale in a way a label doesn't. It also
+  covers the clarity rules added in `hub-doc-pr-generator` v1.13.0: a heading phrased as a
+  question or as the reader's discovery, or a table column header that
+  addresses the reader; a count of the items the page itself lists ("the
+  following three settings"); "the same," "both," or "these" with no noun in
+  the sentence, or a table row that only makes sense next to another row; a
+  recommendation with no concrete option or example; an option description
+  that omits what happens when it is unset, or a conditional field that omits
+  when it applies; a capability claim ("you can verify each entry") with no
+  steps or link in the same section; "Starting in vX" repeated on a page whose
+  whole feature already requires vX; an absolute ("never X, even when Y") in
+  place of the direct rule; and, in a procedure step, a sentence that only
+  informs and changes nothing the reader does. If that
   plugin isn't installed, treat these as ordinary style judgment calls at the
   usual 0.5–0.84 band instead.
 - **Narrated code**: prose that restates what an adjacent, readable code block
@@ -111,13 +123,17 @@ it's the difference between catching drift and quietly enforcing it.
   which is canonical" — as a low-confidence, suggestion-only finding with
   no `suggested_fix` that picks a winner. A human decides; this checklist
   flags, it doesn't silently enforce whichever term is more common.
+  The generator's `style-guide.md` also tells a drafter to reuse the term a
+  linked page already uses (Voice principle 24). A reviewer can't tell which
+  of two pages has the right term, so a mismatch between linked pages stays a
+  low-confidence inconsistency report, not a correction.
 - **Voice**: second person ("you configure...") not first person plural
   ("we recommend...") — this standard comes from the Reader ID's own
   definition (direct, task-oriented address), not from how other pages
   currently write. A page that's already first-person elsewhere is not
   evidence that first-person is acceptable — report it anyway, with real
   confidence, since the Reader ID is the independent standard here.
-- **Structural convention**: headings in sentence case, code blocks fenced
+- **Structural convention**: H2 and lower headings in sentence case (the H1 is Title Case), code blocks fenced
   with a language tag — these are checkable against Markdown/Docusaurus
   conventions independent of the corpus, so report them with real
   confidence. Parameter-table column order is different: there is no
