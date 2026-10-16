@@ -84,3 +84,15 @@ def test_skill_md_has_no_design_history_or_other_product_plumbing():
 
 def test_templates_exist():
     assert (SKILL_DIR / "templates" / "pr-comment.md.tmpl").exists()
+
+
+def test_frontmatter_values_are_valid_yaml_scalars():
+    """An unquoted value containing ': ' or ' #' is invalid YAML (GitHub shows an error banner)."""
+    block = re.match(r"^---\n(.*?)\n---\n", SKILL_MD.read_text(), re.DOTALL).group(1)
+    for line in block.splitlines():
+        key, _, value = line.partition(": ")
+        value = value.strip()
+        if value.startswith(('"', "'")):
+            assert value.endswith(value[0]), f"{key}: unterminated quote"
+        else:
+            assert ": " not in value and " #" not in value, f"{key}: quote this value, it has ': ' or ' #'"

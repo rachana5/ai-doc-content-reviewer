@@ -1,6 +1,6 @@
 ---
 name: review-doc-pr-proxy
-description: Runs once per Traefik Proxy pull request and produces one advisory docs review comment. Scoped to what the PR changes: reviews the changed docs and every other page the implementation change affects (accuracy, style, reference, clarity, completeness), and, when user-facing code changed, checks whether docs are missing and drafts them. Read-only, never applies fixes, never blocks merge. Invoke non-interactively as `/review-doc-pr-proxy <pr-number> [--dry-run | --out <file>]`.
+description: "Runs once per Traefik Proxy pull request and produces one advisory docs review comment. Scoped to what the PR changes: reviews the changed docs and every other page the implementation change affects (accuracy, style, reference, clarity, completeness), and, when user-facing code changed, checks whether docs are missing and drafts them. Read-only, never applies fixes, never blocks merge. Invoke non-interactively as `/review-doc-pr-proxy <pr-number> [--dry-run | --out <file>]`."
 allowed-tools: "Read Grep Glob Bash(python3:*) Bash(git:*) Bash(gh:*)"
 ---
 
