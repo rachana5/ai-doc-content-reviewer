@@ -1,4 +1,4 @@
-SKILLS := content-reviewer review-doc-pr
+SKILLS := content-reviewer review-doc-pr review-doc-pr-proxy
 HUB_DOC_ROOT ?=
 
 .PHONY: test sync-check help
