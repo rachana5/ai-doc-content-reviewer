@@ -1,0 +1,162 @@
+from __future__ import annotations
+import subprocess
+from unittest import mock
+
+from scripts import setup
+
+
+def test_check_python_version_ok_on_311_plus():
+    ok, msg = setup.check_python_version(version_info=(3, 11, 0))
+    assert ok is True
+    assert "3.11" in msg
+
+
+def test_check_python_version_fails_below_floor():
+    ok, msg = setup.check_python_version(version_info=(3, 9, 0))
+    assert ok is False
+    assert "3.11" in msg
+
+
+def test_check_gh_auth_ok(monkeypatch):
+    monkeypatch.setattr(
+        setup.subprocess, "run",
+        lambda *a, **k: mock.Mock(returncode=0, stdout="Logged in", stderr=""),
+    )
+    ok, msg = setup.check_gh_auth()
+    assert ok is True
+
+
+def test_check_gh_auth_fails_when_not_logged_in(monkeypatch):
+    monkeypatch.setattr(
+        setup.subprocess, "run",
+        lambda *a, **k: mock.Mock(returncode=1, stdout="", stderr="not logged in"),
+    )
+    ok, msg = setup.check_gh_auth()
+    assert ok is False
+    assert "gh auth login" in msg
+
+
+def test_check_gh_auth_passes_a_timeout(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return mock.Mock(returncode=0, stdout="Logged in", stderr="")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    setup.check_gh_auth()
+    assert captured["timeout"] == setup._PREFLIGHT_TIMEOUT_SECONDS
+
+
+def test_check_gh_auth_degrades_gracefully_on_timeout(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_gh_auth()
+    assert ok is False
+    assert "timed out" in msg
+
+
+def test_check_gh_auth_degrades_gracefully_when_gh_missing(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "gh")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_gh_auth()
+    assert ok is False
+    assert "could not run gh" in msg
+
+
+def test_check_git_status_reports_clean_tree(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        setup.subprocess, "run",
+        lambda cmd, **k: mock.Mock(returncode=0, stdout="", stderr=""),
+    )
+    ok, msg = setup.check_git_status(tmp_path)
+    assert ok is True
+    assert "clean" in msg
+
+
+def test_check_git_status_warns_on_dirty_tree(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        setup.subprocess, "run",
+        lambda cmd, **k: mock.Mock(returncode=0, stdout=" M docs/foo.md\n", stderr=""),
+    )
+    ok, msg = setup.check_git_status(tmp_path)
+    assert ok is False
+    assert "uncommitted" in msg
+
+
+def test_check_git_status_ok_when_not_a_git_repo(monkeypatch, tmp_path):
+    # Not this check's job to flag "not a git repo" — repo detection (a
+    # different, earlier step) surfaces that problem. This check must not
+    # report a false warning here.
+    monkeypatch.setattr(
+        setup.subprocess, "run",
+        lambda cmd, **k: mock.Mock(returncode=128, stdout="", stderr="fatal: not a git repository"),
+    )
+    ok, msg = setup.check_git_status(tmp_path)
+    assert ok is True
+
+
+def test_check_git_status_passes_a_timeout(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return mock.Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    setup.check_git_status(tmp_path)
+    assert captured["timeout"] == setup._PREFLIGHT_TIMEOUT_SECONDS
+
+
+def test_check_git_status_ok_on_timeout(monkeypatch, tmp_path):
+    # Advisory-only, per this check's own docstring: a hung git call must
+    # degrade the same way "not a git repository" already does, not crash.
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_git_status(tmp_path)
+    assert ok is True
+    assert "timed out" in msg
+
+
+def test_check_git_status_ok_when_git_missing(monkeypatch, tmp_path):
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "git")
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+    ok, msg = setup.check_git_status(tmp_path)
+    assert ok is True
+    assert "could not run git" in msg
+
+
+def test_main_check_exits_zero_when_all_ok(monkeypatch):
+    monkeypatch.setattr(setup, "check_python_version", lambda **k: (True, "ok"))
+    monkeypatch.setattr(setup, "check_gh_auth", lambda: (True, "ok"))
+    monkeypatch.setattr(setup, "check_git_status", lambda repo_root: (True, "ok"))
+    exit_code = setup.main(["--check"])
+    assert exit_code == 0
+
+
+def test_main_check_exits_nonzero_when_python_fails(monkeypatch):
+    monkeypatch.setattr(setup, "check_python_version", lambda **k: (False, "need 3.11+"))
+    monkeypatch.setattr(setup, "check_gh_auth", lambda: (True, "ok"))
+    exit_code = setup.main(["--check"])
+    assert exit_code != 0
+
+
+def test_main_check_warns_but_does_not_block_on_dirty_tree(monkeypatch):
+    # The git-status check is advisory — it must never turn a real,
+    # otherwise-passing preflight into a blocked run.
+    monkeypatch.setattr(setup, "check_python_version", lambda **k: (True, "ok"))
+    monkeypatch.setattr(setup, "check_gh_auth", lambda: (True, "ok"))
+    monkeypatch.setattr(
+        setup, "check_git_status",
+        lambda repo_root: (False, "working tree has uncommitted changes"),
+    )
+    exit_code = setup.main(["--check"])
+    assert exit_code == 0

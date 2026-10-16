@@ -1,0 +1,115 @@
+{
+  "name": "proxy",
+  "repo": "traefik/traefik",
+  "engine": "mkdocs",
+  "docs_root": "docs/content/",
+  "doc_extensions": [
+    ".md"
+  ],
+  "source": "self",
+  "style_guide": {
+    "repo_path": "docs/content/contributing/documentation-style-guide.md",
+    "bundled": "references/proxy-style-guide.md"
+  },
+  "skip_authors": [
+    "app/renovate",
+    "app/dependabot",
+    "renovate[bot]",
+    "dependabot[bot]"
+  ],
+  "skip_title_prefixes": [
+    "chore(deps)",
+    "fix(deps)",
+    "chore(deps-dev)"
+  ],
+  "generated_files": [
+    "docs/content/reference/install-configuration/configuration-options.md",
+    "docs/content/reference/dynamic-configuration/traefik.io_*.yaml",
+    "docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml"
+  ],
+  "exclude_code": [
+    "_test\\.go$",
+    "/fixtures?/",
+    "zz_generated",
+    "^integration/",
+    "^webui/"
+  ],
+  "user_facing_code": [
+    {
+      "area": "Router rule matchers and priority",
+      "pattern": "^pkg/muxer/(http|tcp)/.*\\.go$|^pkg/muxer/muxer\\.go$|^pkg/rules/.*\\.go$",
+      "docs": [
+        "docs/content/reference/routing-configuration/http/routing/rules-and-priority.md",
+        "docs/content/reference/routing-configuration/tcp/routing/rules-and-priority.md"
+      ]
+    },
+    {
+      "area": "ACME and certificate resolvers",
+      "pattern": "^pkg/provider/acme/.*\\.go$",
+      "docs": [
+        "docs/content/reference/install-configuration/tls/certificate-resolvers/"
+      ]
+    },
+    {
+      "area": "Entry point",
+      "pattern": "^pkg/config/static/entrypoints\\.go$",
+      "docs": [
+        "docs/content/reference/install-configuration/entrypoints.md"
+      ]
+    },
+    {
+      "area": "Install configuration option or flag",
+      "pattern": "^pkg/config/static/.*\\.go$",
+      "docs": [
+        "docs/content/reference/install-configuration/"
+      ],
+      "also": "configuration-options.md is generated: change the Go struct field comment and run make generate."
+    },
+    {
+      "area": "Middleware option or behavior",
+      "pattern": "^pkg/middlewares/([a-z]+)/.*\\.go$",
+      "docs": [
+        "docs/content/reference/routing-configuration/http/middlewares/\\1.md"
+      ]
+    },
+    {
+      "area": "Routing configuration (middleware, router, service options)",
+      "pattern": "^pkg/config/dynamic/(http_config|middlewares|tcp_config|tcp_middlewares|udp_config)\\.go$",
+      "docs": [
+        "docs/content/reference/routing-configuration/"
+      ]
+    },
+    {
+      "area": "Provider behavior",
+      "pattern": "^pkg/provider/([a-z]+)/.*\\.go$",
+      "docs": [
+        "docs/content/reference/install-configuration/providers/"
+      ]
+    },
+    {
+      "area": "Observability (metrics, tracing, logs)",
+      "pattern": "^pkg/(metrics|observability|tracing|logs)/.*\\.go$",
+      "docs": [
+        "docs/content/reference/install-configuration/observability/"
+      ]
+    },
+    {
+      "area": "TLS and certificate resolvers",
+      "pattern": "^pkg/(tls|provider/acme)/.*\\.go$",
+      "docs": [
+        "docs/content/reference/install-configuration/tls/"
+      ]
+    }
+  ],
+  "doc_aliases": {
+    "ratelimiter": "ratelimit",
+    "customerrors": "errorpages",
+    "inflightreq": "inflightreq",
+    "ipwhitelist": "ipallowlist",
+    "auth": "basicauth"
+  },
+  "drop_outside_diff_layers": [
+    "reference"
+  ],
+  "engine_link_mode": "mkdocs"
+}

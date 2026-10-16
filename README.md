@@ -23,6 +23,12 @@ Four independent layers, each looking for a different kind of problem:
   jobs, judged against how this docs' actual readers read (scanning for
   headings/bold/code, not reading start to finish).
 
+## Per-PR review for Traefik Proxy
+
+`review-doc-pr-proxy` reviews one `traefik/traefik` documentation PR and produces one advisory
+comment, limited to what the PR changes plus the other pages that change affects. See
+`docs/INTEGRATION-review-doc-pr-proxy.md` for running it in a workflow or by hand.
+
 ## Two ways to invoke it
 
 - **Full review** — `/content-reviewer docs/api-gateway/setup/kubernetes` —
