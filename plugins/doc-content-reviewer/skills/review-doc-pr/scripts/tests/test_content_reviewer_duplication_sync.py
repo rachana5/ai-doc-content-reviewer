@@ -22,11 +22,6 @@ not just equivalent behavior: any edit to a checklist or to the schema/
 aggregation code that isn't mirrored to the other skill fails here
 immediately, instead of silently making review-doc-pr's findings diverge
 from what content-reviewer would report for the same text.
-
-This is a same-repo, same-test-run check (unlike
-tools/check_review_doc_pr_sync.py, which checks review-doc-pr's OWN copy
-against the separate traefik/hub-doc checkout -- a different repo, a
-different failure mode, a different tool).
 """
 from __future__ import annotations
 
@@ -40,8 +35,7 @@ _CONTENT_REVIEWER = _SKILLS_ROOT / "content-reviewer"
 # Duplicated verbatim -- must stay byte-identical. If a real, concrete need
 # to diverge ever shows up (the same kind of thing that justified _git.py's
 # divergence), move that path's assertion out of this list into its own
-# documented exception, the same way tools/check_review_doc_pr_sync.py's
-# KNOWN_EXCEPTIONS works for the hub-doc copy -- don't just delete the check.
+# documented exception -- don't just delete the check.
 _DUPLICATED_SCRIPTS = (
     "aggregate.py", "check_links.py", "run_style_lint.py", "_finding.py",
     # run_style_lint.py imports `from scripts.setup import check_lint_tools`

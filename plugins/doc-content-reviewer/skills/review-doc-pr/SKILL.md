@@ -36,9 +36,7 @@ no human confirmation anywhere in the pipeline. It runs once and reports.
     `ai-doc-content-reviewer` source repo**, not re-verified from inside
     `hub-doc`. That test file is deliberately not copied here — it asserts
     a sibling `content-reviewer/` directory that never exists once
-    `review-doc-pr` is standalone in `hub-doc` (see
-    `tools/check_review_doc_pr_sync.py`'s `NOT_COPIED_TO_HUB_DOC` in the
-    source repo for the documented reason).
+    `review-doc-pr` is standalone in `hub-doc`.
   - `pr_filter.py` — decides whether a PR is out of scope (Renovate/
     dependency-bump PRs) before any layer runs (Step 0b). Not shared with
     `content-reviewer`, which has no equivalent concept — it always runs
