@@ -43,12 +43,14 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.prepare --pr <pr> --repo-roo
 
 This resolves the PR, skips dependency-bump PRs, classifies the changed files, and writes
 `context.json`, `classify.json` and `changed-lines.json`. A workflow may already have run it and
-supplied `context.json`; then skip the command. Read `context.json`:
+supplied `context.json`; then skip the command. To replay a merged PR or run in a detached checkout,
+use the offline mode: `--files <file of changed paths> --author <login> --title <title> --base <ref> --head <ref>`.
+Read `context.json`:
 
 | `action` | Run | Produce |
 |---|---|---|
 | `full-review` | Step 2, Step 3 (all layers), and Step 3b if `user_facing_code` is non-empty | one comment |
-| `missing-docs-only` | Step 2, Step 3b, and the accuracy layer on affected pages only (code changed, no docs touched: a page that still states the old default is the typical finding) | a comment only if a finding exists |
+| `missing-docs-only` | Step 2, Step 3b, Step 3c, and the accuracy layer on affected pages only (code changed, no docs touched: a page that still states the old default is the typical finding) | a comment only if a finding exists |
 | `silent` | nothing | nothing |
 
 `skip: true` (a dependency-bump PR) means `silent`: run no layer and post nothing, not even the
@@ -62,7 +64,9 @@ did not touch, use the PR's base branch.
 1. **Change set.** List the terms this PR changes: from the code diff of each `user_facing_code`
    file, every option, field, flag, label, middleware or provider name that is new, renamed, removed,
    or has a changed default or behavior. For a docs-only PR (no code diff), use the options and
-   claims in the changed doc lines instead. Write them as one comma-separated list.
+   claims in the changed doc lines instead. For a Go-only change with no option name, use the Kubernetes
+   kinds, field paths, accepted values, status reasons and error messages the code now emits or reads.
+   Write them as one comma-separated list.
 2. **Search the whole docs tree** for those terms. The profile's `doc_targets` seed the ranking;
    the search is what finds pages the map does not know:
 
@@ -89,7 +93,8 @@ its checklist (`references/<layer>-checklist.md`; style also reads the Proxy sty
 | Clarity | Changed lines only |
 | Completeness | The change set: is it documented everywhere it should be (every format, reference page, migration note)? Not "is this page thorough". Always `suggestion`, `auto_fixable: false` |
 
-No linter runs for Proxy, so style is agent-only and the comment says so.
+No linter runs for Proxy, so style is agent-only and the comment says so. When no doc line changed (a
+`missing-docs-only` run), write `[]` for these layers and skip `check_links`; Step 3b and 3c still run.
 
 Reference layer, mechanical part. Proxy docs are MkDocs, so pass the engine and docs root; the
 default mode would false-flag every directory-style link and does not check anchors. Run it on the
@@ -113,14 +118,33 @@ with an `unverifiable` finding at the same location. Never fail the run over one
 ## Step 3b: Missing-docs check (user-facing code changed)
 
 Follow `references/missing-docs-checklist.md` for each `user_facing_code` entry, using
-`affected.json` to see what the docs already say anywhere in the tree. Write the results as
+`affected.json` to see what the docs already say anywhere in the tree. Also apply
+`references/completeness-checklist.md` to the change set: a change that alters what an existing setup does
+needs an upgrade-impact finding, and every supported format needs the example. For these findings `quote`
+is the code change (as the missing-docs checklist says); the completeness checklist's anchor rule applies to
+`line` only. Write the results as
 `completeness` findings (merge into `completeness.json` when both exist). If `generated_touched` is
 non-empty, report it as the top style finding.
 
-## Step 4: Cap severity outside the diff
+## Step 3c: Check what you drafted
 
-Findings whose line is outside the PR's changed lines, including every finding on a page the PR does
-not edit, become `suggestion`. Nothing is dropped. `post_review.py` applies this right before rendering.
+Every text you draft for a finding (heading, prose, table, example) is checked before you write the
+finding, and you fix the draft instead of reporting on it:
+
+1. Check it against the Proxy style guide and `references/clarity-checklist.md`: cases that differ by state
+   in a table, a verb in a task heading, the way to read a status or error next to the sentence that
+   mentions it, a `!!! warning` for a restriction that causes errors, the term a reader searches for that the feature
+   really matches (`mTLS` only when Traefik sends a client certificate) in the first sentence.
+2. Check every factual sentence against the code at the PR head and cite the `file:line` in `reasoning`. A
+   claim that comes only from the PR description is not verified: remove it, or end `reasoning` with
+   "Unverified:" and the claim.
+
+## Step 4: Every finding is a suggestion
+
+The comment is advisory and never blocks merge, so every finding is shown as a suggestion: write
+`severity: suggestion`. `post_review.py` sets it to `suggestion` right before rendering, so the heading
+counts suggestions only. What sets a finding's place in the comment is `impact` (`references/finding-schema.md`),
+not severity. Nothing is dropped.
 
 ## Step 5: Aggregate
 
@@ -130,7 +154,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.aggregate \
   --completeness completeness.json --template templates/pr-comment.md.tmpl --out merged.json --quiet
 ```
 
-Always pass `--quiet`: the console echo is built before the Step 4 cap, so its counts can disagree
+Always pass `--quiet`: the console echo is built before post_review forces every severity to `suggestion`, so its counts can disagree
 with the comment that is produced.
 
 ## Step 6: Render and deliver
@@ -152,9 +176,10 @@ How the comment is delivered follows the invocation:
 `--profile` drops `reference` findings on lines the PR did not change, unless the finding is
 `affected: true`. `--classify` applies the silence rules: `silent`, or `missing-docs-only` with zero
 findings, produces nothing and exits 0. A `full-review` with zero findings renders a short "no
-issues found" comment. Findings are ordered blocking first, then accuracy, missing docs, links,
-clarity, style. With 8 or more suggestions, related ones are grouped into one collapsed row (same
-`group` value, or all link findings); blocking findings are never grouped.
+issues found" comment. Findings are ordered most to least impactful: by `impact` (high, medium, low),
+then accuracy, missing docs, links, clarity, style, then confidence. With 8 or more findings, related
+ones are grouped into one collapsed row (same `group` value, or all link findings); the most impactful
+member leads its group.
 
 ## Error handling
 

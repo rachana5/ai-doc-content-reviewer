@@ -15,6 +15,8 @@ import json
 import re
 from pathlib import Path
 
+from scripts import _finding
+
 # Merge always escalates to the more severe finding, independent of
 # confidence: this is an advisory, never-blocks-merge comment, so a false
 # "blocking" costs a reader a shrug while a silently-downgraded real
@@ -57,6 +59,9 @@ def dedup_findings(findings: list[dict]) -> list[dict]:
             # a higher-confidence "suggestion" from another.
             if _SEVERITY_RANK[finding["severity"]] > _SEVERITY_RANK[existing["severity"]]:
                 existing["severity"] = finding["severity"]
+            # Impact escalates the same way: the merged finding keeps the higher impact.
+            if _finding.IMPACT_RANK[_finding.effective_impact(finding)] < _finding.IMPACT_RANK[_finding.effective_impact(existing)]:
+                existing["impact"] = _finding.effective_impact(finding)
     return list(by_location.values())
 
 

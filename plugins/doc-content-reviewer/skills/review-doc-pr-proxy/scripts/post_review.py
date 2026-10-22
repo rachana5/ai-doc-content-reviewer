@@ -17,7 +17,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from scripts import _gh, aggregate, changed_lines
+from scripts import _finding, _gh, aggregate, changed_lines
 
 MARKER = "<!-- review-doc-pr:v1 -->"
 
@@ -29,33 +29,16 @@ Automated review against the code and the style guide found nothing to flag. Not
 """
 
 
-def cap_severity_outside_diff(
-    findings: list[dict], changed_ranges: dict[str, list[list[int]]],
-) -> list[dict]:
+def all_as_suggestions(findings: list[dict]) -> list[dict]:
     """Returns a new list, findings unchanged except `severity` forced to
-    "suggestion" for any finding whose (file, line) falls outside the PR's
-    own changed-line ranges.
+    "suggestion".
 
-    `blocking` is reserved for findings inside the PR's own changed lines. A
-    finding about the PR's change set on a line or page the PR did not edit
-    (an affected reference table, say) is still worth surfacing, but as a
-    suggestion the author may act on, not a blocker. This cap applies uniformly to every finding regardless
-    of layer -- nothing needs to check `layer`/`layers` to tell the
-    difference.
-
-    Must run before render_report() is called (whether that's from this
-    module or from an `aggregate` CLI invocation upstream of it) --
-    render_report()'s blocking_count/suggestion_count are computed
-    directly from whatever `severity` is on each finding at that point.
-    """
-    capped = []
-    for finding in findings:
-        f = dict(finding)
-        ranges = [tuple(r) for r in changed_ranges.get(f["file"], [])]
-        if not changed_lines.line_in_ranges(f["line"], ranges):
-            f["severity"] = "suggestion"
-        capped.append(f)
-    return capped
+    This comment is advisory and never blocks merge, and a docs reviewer is not the
+    one to decide that a PR is blocked, so every finding is shown as a suggestion.
+    How much a finding matters is its `impact`, which sets the order (see _order_key).
+    Must run before render_comment(): the heading's suggestion_count is computed from
+    whatever `severity` each finding has at that point."""
+    return [{**f, "severity": "suggestion"} for f in findings]
 
 
 def drop_outside_diff(
@@ -86,8 +69,6 @@ def drop_outside_diff(
 
 COMMENT_SIZE_CAP = 60_000  # GitHub's hard limit is 65,536 characters per comment
 _FIX_CAP_ON_SHRINK = 500
-
-_SEVERITY_MARK = {"blocking": "\U0001F534", "suggestion": "\U0001F7E1"}
 
 
 def _sentences(text: str) -> tuple[str, str]:
@@ -127,8 +108,7 @@ def render_finding(f: dict, fix_cap: int | None = None) -> str:
     Expanded body: what is wrong, then the suggested fix. Nothing is cut off:
     the full reasoning is always in the body."""
     rule = f.get("rule") or _LAYER_LABEL.get(f["layer"], f["layer"].title())
-    mark = _SEVERITY_MARK.get(f["severity"], "")
-    summary = f'{mark} <code>{_short_path(f["file"])}:{f["line"]}</code> &nbsp;·&nbsp; {_html_inline(rule)}'
+    summary = f'<code>{_short_path(f["file"])}:{f["line"]}</code> &nbsp;·&nbsp; {_html_inline(rule)}'
     quote, fix = f["quote"].strip(), f["suggested_fix"].strip()
     if fix_cap is not None and len(fix) > fix_cap:
         fix = fix[:fix_cap].rstrip() + "\n\n_(shortened to fit the comment size limit)_"
@@ -157,36 +137,35 @@ def _group_key(f: dict) -> str | None:
     """Suggestions that share a key are candidates for one grouped row. The agent
     sets `group` (usually the option or field the findings are about); link
     findings from the reference layer group together by default."""
-    if f["severity"] == "blocking":
-        return None
     if f.get("group"):
         return f["group"].strip()
     return _LINKS_GROUP if f["layer"] == "reference" else None
 
 
-# Importance of a layer's finding, most important first: a wrong fact, then missing docs,
-# then a broken or missing link, then wording, then style.
+# Tie-break inside one impact level: a wrong fact, then missing docs, then a broken or
+# missing link, then wording, then style.
 _LAYER_RANK = {"accuracy": 0, "completeness": 1, "reference": 2, "clarity": 3, "style": 4}
 
 
 def _order_key(f: dict) -> tuple:
-    """Blocking first; then by layer importance, highest confidence, and location."""
+    """Most to least impactful: by impact (high, medium, low; see
+    _finding.effective_impact for the default of a finding that sets none), then layer
+    importance, highest confidence, and location."""
     layers = f.get("layers", [f["layer"]])
     rank = min(_LAYER_RANK.get(l, len(_LAYER_RANK)) for l in layers)
-    return (f["severity"] != "blocking", rank, -f["confidence"], f["file"], f["line"])
+    return (_finding.IMPACT_RANK[_finding.effective_impact(f)], rank, -f["confidence"], f["file"], f["line"])
 
 
 def group_findings(findings: list[dict], threshold: int = GROUP_THRESHOLD) -> list[list[dict]]:
-    """Order findings into display units: blocking first, one per unit, then
-    suggestions, most important first (see _order_key). With fewer than `threshold` suggestions nothing is grouped.
-    At or above it, suggestions sharing a key (two or more) collapse into one
-    unit placed where its first member would sit. Blocking is never grouped."""
+    """Order findings into display units, most impactful first (see _order_key).
+    With fewer than `threshold` findings nothing is grouped. At or above it,
+    findings sharing a key (two or more) collapse into one unit placed where its
+    first member would sit."""
     ordered = sorted(findings, key=_order_key)
-    suggestions = [f for f in ordered if f["severity"] != "blocking"]
-    if len(suggestions) < threshold:
+    if len(ordered) < threshold:
         return [[f] for f in ordered]
     members: dict[str, list[dict]] = {}
-    for f in suggestions:
+    for f in ordered:
         key = _group_key(f)
         if key:
             members.setdefault(key, []).append(f)
@@ -206,8 +185,7 @@ def group_findings(findings: list[dict], threshold: int = GROUP_THRESHOLD) -> li
 def render_group(key: str, members: list[dict], fix_cap: int | None = None) -> str:
     """One collapsed row that opens to the member findings, each still a
     collapsed row of its own, so nothing is hidden or merged away."""
-    summary = (f'{_SEVERITY_MARK["suggestion"]} {len(members)} related suggestions'
-               f' &nbsp;·&nbsp; {_html_inline(key)}')
+    summary = f'{len(members)} related suggestions &nbsp;·&nbsp; {_html_inline(key)}'
     inner = "\n".join(render_finding(f, fix_cap) for f in members)
     return f"<details>\n<summary>{summary}</summary>\n\n{inner}\n</details>\n"
 
@@ -223,10 +201,9 @@ def _render_units(units: list[list[dict]], fix_cap: int | None = None) -> str:
 
 
 def render_findings_block(findings: list[dict]) -> str:
-    """Blocking first, then suggestions; within each, by layer importance, then
-    confidence, then file and line. Eight or
-    more suggestions get related ones grouped (see group_findings). If the result
-    would exceed the size cap, shorten the longest suggested fixes."""
+    """Most impactful first, then by layer importance, confidence, file and line.
+    Eight or more findings get related ones grouped (see group_findings). If the
+    result would exceed the size cap, shorten the longest suggested fixes."""
     units = group_findings(findings)
     block = _render_units(units)
     if len(block) > COMMENT_SIZE_CAP:
@@ -314,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
         from scripts import profile as profile_mod
         findings = drop_outside_diff(
             findings, changed_ranges, profile_mod.load(args.profile).get("drop_outside_diff_layers", []))
-    findings = cap_severity_outside_diff(findings, changed_ranges)
+    findings = all_as_suggestions(findings)
 
     # Silence rules: nothing to review, or a code-only PR with no docs gap found.
     if action == "silent" or (action == "missing-docs-only" and not findings):

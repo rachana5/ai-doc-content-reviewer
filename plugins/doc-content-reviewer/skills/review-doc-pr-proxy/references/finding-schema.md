@@ -14,7 +14,8 @@ renders; don't invent a different shape per layer. This skill never applies fixe
   "rule": "Accuracy: default value",
   "reasoning": "The default is 2 MB (pkg/config/dynamic/middlewares.go:17), not 1 MB.",
   "suggested_fix": "| 2MB | No |",
-  "severity": "blocking",
+  "severity": "suggestion",
+  "impact": "high",
   "confidence": 0.95,
   "auto_fixable": false
 }
@@ -26,8 +27,9 @@ renders; don't invent a different shape per layer. This skill never applies fixe
 - `rule`: a short label (at most 80 characters) naming the rule or check this finding breaks. It is the only text shown next to the file name in the collapsed row of the comment, so make it specific: `Style guide: Words and Phrases to Avoid`, `Style guide: Voice`, `Accuracy: default value`, `Broken link`, `Missing docs: new maxBackoff option`. Use the style guide's own section names. Optional (falls back to the layer name), but always set it.
 - `reasoning`: what is wrong, in one to three plain sentences, shown under "What's wrong" in the expanded comment and never truncated. Include the concrete pointer (a `file:line` in source, the missing link target). Don't repeat the rule label, don't start with "Style guide, ...", and don't write the fix here.
 - `suggested_fix`: the literal replacement text for `quote`, never an instruction like "Change X to Y". The comment shows a single-line `quote` and `suggested_fix` as a before/after diff, so an instruction would read as text to paste. For a missing-docs finding, or a fix that needs surrounding explanation, write ready-to-paste prose or markdown instead (it is shown as a quote plus the text). When there is no safe replacement, use `(needs a human to ...)`. Every finding needs one, even flag-only ones — a human still benefits from seeing the proposed fix even if it isn't auto-applied.
-- `severity`: `blocking` (factual/structural — wrong value, broken link, missing required section) vs `suggestion` (style/clarity nits).
+- `severity`: always `suggestion`. This comment is advisory and never blocks merge, so `post_review.py` shows every finding as a suggestion whatever it says here. Use `impact` to say how much a finding matters.
+- `impact` (optional): `high`, `medium` or `low`. It sets the order of the comment, most impactful first. `high`: following the docs as written leads a reader to a wrong or broken setup, or an existing setup changes behavior without a warning (a wrong fact, an upgrade impact). `medium`: a user-facing capability has no documentation, or a link is broken. `low`: wording, style, an optional extra such as a task guide. When you set none, it follows the layer: accuracy `high`; completeness and reference `medium`; clarity and style `low`.
 - `confidence`: your calibrated confidence, 0.0 to 1.0, that this finding is correct and the fix is right. Be conservative.
 - `auto_fixable`: always `false`.
-- `group` (optional): a short label naming the option, field, or middleware the finding is about, in backticks (`` `maxBurst` ``). Findings that share the value can be shown as one collapsed row when the comment has eight or more suggestions. Blocking findings are never grouped, whatever their `group`. Link findings from the reference layer group together without it.
+- `group` (optional): a short label naming the option, field, or middleware the finding is about, in backticks (`` `maxBurst` ``). Findings that share the value can be shown as one collapsed row when the comment has eight or more findings. The most impactful member leads its group. Link findings from the reference layer group together without it.
 - `affected` (optional boolean): `true` when the finding is on a page, or about a link, that the PR did not change but the PR's change makes wrong. It keeps a reference finding outside the diff from being dropped. Severity outside the diff is still capped to `suggestion`.

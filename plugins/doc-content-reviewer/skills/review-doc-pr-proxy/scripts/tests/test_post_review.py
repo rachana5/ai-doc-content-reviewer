@@ -15,31 +15,14 @@ def _finding(file="docs/foo.md", line=10, severity="blocking", **overrides):
     return base
 
 
-def test_cap_severity_outside_diff_downgrades_findings_outside_changed_ranges():
+def test_all_as_suggestions_forces_every_finding_to_suggestion():
+    findings = [_finding(line=3, severity="blocking"), _finding(line=50, severity="suggestion")]
+    assert [f["severity"] for f in post_review.all_as_suggestions(findings)] == ["suggestion", "suggestion"]
+
+
+def test_all_as_suggestions_does_not_mutate_input():
     findings = [_finding(line=50, severity="blocking")]
-    changed_ranges = {"docs/foo.md": [[1, 5]]}
-    capped = post_review.cap_severity_outside_diff(findings, changed_ranges)
-    assert capped[0]["severity"] == "suggestion"
-
-
-def test_cap_severity_outside_diff_leaves_in_diff_findings_alone():
-    findings = [_finding(line=3, severity="blocking")]
-    changed_ranges = {"docs/foo.md": [[1, 5]]}
-    capped = post_review.cap_severity_outside_diff(findings, changed_ranges)
-    assert capped[0]["severity"] == "blocking"
-
-
-def test_cap_severity_outside_diff_treats_missing_file_as_fully_out_of_diff():
-    findings = [_finding(file="docs/untouched.md", line=1, severity="blocking")]
-    changed_ranges = {"docs/foo.md": [[1, 5]]}
-    capped = post_review.cap_severity_outside_diff(findings, changed_ranges)
-    assert capped[0]["severity"] == "suggestion"
-
-
-def test_cap_severity_outside_diff_does_not_mutate_input():
-    findings = [_finding(line=50, severity="blocking")]
-    changed_ranges = {"docs/foo.md": [[1, 5]]}
-    post_review.cap_severity_outside_diff(findings, changed_ranges)
+    post_review.all_as_suggestions(findings)
     assert findings[0]["severity"] == "blocking"
 
 
@@ -257,9 +240,9 @@ def _f(layer, sev, line, quote="old text", fix="new text", reasoning="Rule one. 
             "confidence": 0.7, "auto_fixable": False}
 
 
-def test_blocking_findings_come_first_then_by_line():
+def test_findings_are_ordered_by_impact_then_line_within_a_layer():
     from scripts import post_review as pr
-    block = pr.render_findings_block([_f("style", "suggestion", 3), _f("accuracy", "blocking", 90), _f("style", "suggestion", 1)])
+    block = pr.render_findings_block([_f("style", "suggestion", 3), _f("accuracy", "suggestion", 90), _f("style", "suggestion", 1)])
     assert block.index(":90") < block.index(":1<") < block.index(":3<")
 
 
@@ -349,13 +332,13 @@ def test_link_findings_group_by_default_and_a_lone_key_stays_single():
     assert "Links and references" in pr.render_findings_block(fs)
 
 
-def test_blocking_is_never_grouped_and_stays_first():
+def test_a_high_impact_finding_is_never_buried_inside_a_group():
     from scripts import post_review as pr
-    blocking = [dict(_f("accuracy", "blocking", i), group="`x`") for i in range(1, 3)]
-    fs = blocking + [_s(line=i, group="`x`") for i in range(1, 9)]
-    units = pr.group_findings(fs)
-    assert [len(u) for u in units[:2]] == [1, 1] and all(u[0]["severity"] == "blocking" for u in units[:2])
-    assert len(units[2]) == 8
+    high = [dict(_s("completeness", i, group="`x`"), impact="high") for i in range(1, 3)]
+    low = [_s("style", i, group="`x`") for i in range(1, 9)]
+    units = pr.group_findings(low + high)
+    assert len(units) == 1 and len(units[0]) == 10   # one key groups them all
+    assert [f["impact"] for f in units[0][:2]] == ["high", "high"]   # but the high ones lead the group
 
 
 def test_drop_outside_diff_keeps_affected_findings():
@@ -378,10 +361,27 @@ def test_suggestions_are_ordered_by_layer_importance_then_confidence_then_locati
     assert order == ["accuracy90", "completeness4", "completeness3", "reference2", "clarity5", "style1"]
 
 
-def test_blocking_still_precedes_a_more_important_layer_suggestion():
+def test_explicit_impact_beats_the_layer_default():
     from scripts import post_review as pr
-    fs = [_s("accuracy", 1), _f("style", "blocking", 50)]
-    assert [u[0]["severity"] for u in pr.group_findings(fs)] == ["blocking", "suggestion"]
+    # An upgrade-impact missing-docs finding (impact high) comes before a medium accuracy one.
+    fs = [dict(_s("accuracy", 1), impact="low"), dict(_s("completeness", 50), impact="high"), _s("style", 3)]
+    assert [u[0]["layer"] for u in pr.group_findings(fs)] == ["completeness", "accuracy", "style"]
+
+
+def test_layer_default_impact_orders_findings_that_set_none():
+    from scripts import post_review as pr
+    fs = [_s("style", 1), _s("reference", 2), _s("completeness", 3), _s("accuracy", 4)]
+    assert [u[0]["layer"] for u in pr.group_findings(fs)] == ["accuracy", "completeness", "reference", "style"]
+
+
+def test_heading_has_no_blocking_count_and_singularizes(tmp_path):
+    from scripts import post_review as pr
+    tmpl = (pr.Path(__file__).parent.parent.parent / "templates" / "pr-comment.md.tmpl").read_text()
+    out = pr.render_comment(pr.all_as_suggestions([_f("accuracy", "blocking", 3)]), tmpl)
+    assert out.startswith("## Docs review: 1 suggestion\n")
+    assert "blocking" not in out.split("<!--")[0].lower()
+    two = pr.render_comment(pr.all_as_suggestions([_f("accuracy", "blocking", 3), _f("style", "suggestion", 5)]), tmpl)
+    assert two.startswith("## Docs review: 2 suggestions\n")
 
 
 def test_out_writes_the_comment_and_never_posts(monkeypatch, tmp_path, capsys):

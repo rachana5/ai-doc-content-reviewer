@@ -11,6 +11,17 @@ from pathlib import Path
 
 VALID_LAYERS = {"accuracy", "style", "reference", "clarity", "completeness"}
 VALID_SEVERITIES = {"blocking", "suggestion"}
+# `severity` is kept so older findings still validate, but this skill renders every
+# finding as a suggestion (post_review.all_as_suggestions). How much a finding matters
+# is `impact`, and it decides the order of the comment.
+VALID_IMPACTS = {"high", "medium", "low"}
+IMPACT_RANK = {"high": 0, "medium": 1, "low": 2}
+# The impact a finding has when its author does not set one: a wrong fact outranks
+# missing docs, which outrank a broken link, which outrank wording and style.
+DEFAULT_IMPACT_BY_LAYER = {
+    "accuracy": "high", "completeness": "medium", "reference": "medium",
+    "clarity": "low", "style": "low",
+}
 AUTO_FIX_THRESHOLD = 0.8
 MAX_RULE_LEN = 80  # shown in the collapsed row of the PR comment
 
@@ -20,16 +31,27 @@ REQUIRED_KEYS = {
 }
 
 
+def effective_impact(finding: dict) -> str:
+    """The finding's own `impact`, else the default for its layer (the most
+    impactful default of a merged finding's layers)."""
+    if finding.get("impact") in VALID_IMPACTS:
+        return finding["impact"]
+    layers = finding.get("layers", [finding.get("layer")])
+    return min((DEFAULT_IMPACT_BY_LAYER.get(l, "low") for l in layers), key=IMPACT_RANK.__getitem__)
+
+
 def make_finding(
     *, layer: str, file: str, line: int, quote: str, reasoning: str,
     suggested_fix: str, severity: str, confidence: float,
     auto_fixable: bool | None = None, rule: str | None = None,
-    group: str | None = None, affected: bool | None = None,
+    group: str | None = None, affected: bool | None = None, impact: str | None = None,
 ) -> dict:
     if layer not in VALID_LAYERS:
         raise ValueError(f"unknown layer: {layer!r} (must be one of {VALID_LAYERS})")
     if severity not in VALID_SEVERITIES:
         raise ValueError(f"unknown severity: {severity!r} (must be one of {VALID_SEVERITIES})")
+    if impact is not None and impact not in VALID_IMPACTS:
+        raise ValueError(f"unknown impact: {impact!r} (must be one of {VALID_IMPACTS})")
     if auto_fixable is None:
         auto_fixable = confidence >= AUTO_FIX_THRESHOLD
     finding = {
@@ -43,6 +65,8 @@ def make_finding(
         finding["group"] = group
     if affected is not None:
         finding["affected"] = affected
+    if impact is not None:
+        finding["impact"] = impact
     return finding
 
 
@@ -61,6 +85,8 @@ def validate_finding(finding: dict) -> list[str]:
         errors.append(f"invalid severity: {finding['severity']!r}")
     if "group" in finding and not (isinstance(finding["group"], str) and finding["group"].strip()):
         errors.append(f"group must be a non-empty string, got {finding['group']!r}")
+    if "impact" in finding and finding["impact"] not in VALID_IMPACTS:
+        errors.append(f"impact must be one of {sorted(VALID_IMPACTS)}, got {finding['impact']!r}")
     if "affected" in finding and not isinstance(finding["affected"], bool):
         errors.append(f"affected must be a boolean, got {finding['affected']!r}")
     if "confidence" in finding:

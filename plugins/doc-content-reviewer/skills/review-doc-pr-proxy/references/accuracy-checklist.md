@@ -69,7 +69,8 @@ something the PR did not touch is out of scope: do not report it.
   "quote": "| 1MB | No |",
   "reasoning": "The default is 2 MB. RetryDefaultMaxRequestBodyBytes is 2 * 1024 * 1024 (pkg/config/dynamic/middlewares.go:17) and pkg/middlewares/retry/retry.go:109 uses it when the option is unset.",
   "suggested_fix": "| 2MB | No |",
-  "severity": "blocking",
+  "severity": "suggestion",
+  "impact": "high",
   "confidence": 0.95
 }
 ```

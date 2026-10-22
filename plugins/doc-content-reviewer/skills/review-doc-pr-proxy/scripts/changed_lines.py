@@ -3,8 +3,7 @@ ranges, using the NEW file's line numbers throughout.
 
 This is the scope boundary for the layers that only look at the PR's own
 lines: style and clarity need to know which lines are actually new/changed
-so they don't flag prose the PR never touched. It also decides which
-findings keep `blocking` severity.
+so they don't flag prose the PR never touched.
 
 New-file line numbers are used because that's what everything downstream
 already numbers against, such as the aggregated report's

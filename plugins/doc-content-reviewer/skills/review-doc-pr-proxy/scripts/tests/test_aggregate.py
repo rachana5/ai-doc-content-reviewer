@@ -298,3 +298,11 @@ def test_headline_is_first_sentence_and_capped():
     assert headline("First sentence. Second sentence with detail.") == "First sentence."
     long = "x" * 300
     assert len(headline(long)) == 140 and headline(long).endswith("…")
+
+
+def test_merge_keeps_the_higher_impact():
+    a = _f("style", "docs/foo.md", 10, confidence=0.9)
+    b = _f("completeness", "docs/foo.md", 10, confidence=0.6)
+    b["impact"] = "high"
+    merged = aggregate.dedup_findings([a, b])
+    assert len(merged) == 1 and merged[0]["impact"] == "high"

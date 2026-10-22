@@ -17,9 +17,8 @@ applies to the lines it did not change.
 2. **Contradiction (accuracy).** Does the page state a default, valid value, type, behavior,
    requirement, or deprecation that the PR's code diff now makes false? A removed or renamed
    option still documented here counts. Verify against the code at the PR head, never against
-   what the PR description says. `severity: blocking` only when the page is in the PR's
-   changed lines; findings on pages or lines the PR did not change are capped to `suggestion`
-   in Step 4.
+   what the PR description says. Set `impact: high` when the page tells a reader to do something the
+   change now breaks; every finding is shown as a suggestion (Step 4).
 3. **Gap (completeness).** Does this page list the same kind of thing (an options table, a
    per-format example, a supported-values list) where the new or changed item belongs but is
    missing? Check every format the page shows. Never suggest text for a generated file
