@@ -36,7 +36,7 @@ def build_context(
     context = {
         "profile": prof["name"], "pr": pr, "repo": repo,
         "base": base, "head": head, "author": author, "title": title,
-        "skip": skip, "skip_reason": "dependency bot or dependency-bump title" if skip else None,
+        "skip": skip, "skip_reason": "dependency bot, or a dependency-bump, merge-forward or release-prep title" if skip else None,
         "action": classify["action"], "docs_changed": classify["docs_changed"],
         "user_facing_code": classify["user_facing_code"],
         "generated_touched": classify["generated_touched"],

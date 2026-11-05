@@ -41,7 +41,7 @@ so the run's log is the only diagnostic.
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.prepare --pr <pr> --repo-root <root> --out-dir <dir>
 ```
 
-This resolves the PR, skips dependency-bump PRs, classifies the changed files, and writes
+This resolves the PR, skips dependency-bump, merge-forward and release-prep PRs, classifies the changed files, and writes
 `context.json`, `classify.json` and `changed-lines.json`. A workflow may already have run it and
 supplied `context.json`; then skip the command. To replay a merged PR or run in a detached checkout,
 use the offline mode: `--files <file of changed paths> --author <login> --title <title> --base <ref> --head <ref>`.
@@ -53,7 +53,7 @@ Read `context.json`:
 | `missing-docs-only` | Step 2, Step 3b, Step 3c, and the accuracy layer on affected pages only (code changed, no docs touched: a page that still states the old default is the typical finding) | a comment only if a finding exists |
 | `silent` | nothing | nothing |
 
-`skip: true` (a dependency-bump PR) means `silent`: run no layer and post nothing, not even the
+`skip: true` (a dependency-bump, merge-forward or release-prep PR, matched by author or title prefix in the profile) means `silent`: run no layer and post nothing, not even the
 "no issues" comment.
 
 The code the accuracy layer checks against is this repository at the PR head. For anything the PR
@@ -173,8 +173,8 @@ How the comment is delivered follows the invocation:
 - `--dry-run`: print it, post nothing (use this first on any live repo, and for manual runs);
 - `--out comment.md`: write it to the file, post nothing (for a workflow that posts it itself).
 
-`--profile` drops `reference` findings on lines the PR did not change, unless the finding is
-`affected: true`. `--classify` applies the silence rules: `silent`, or `missing-docs-only` with zero
+`--profile` drops `reference`, `style` and `clarity` findings on lines the PR did not change, unless the
+finding is `affected: true`. A finding about the whole file (`line: 0`) is kept. `--classify` applies the silence rules: `silent`, or `missing-docs-only` with zero
 findings, produces nothing and exits 0. A `full-review` with zero findings renders a short "no
 issues found" comment. Findings are ordered most to least impactful: by `impact` (high, medium, low),
 then accuracy, missing docs, links, clarity, style, then confidence. With 8 or more findings, related

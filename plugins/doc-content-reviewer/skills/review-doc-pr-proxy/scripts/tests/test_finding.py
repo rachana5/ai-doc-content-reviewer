@@ -193,3 +193,14 @@ def test_effective_impact_defaults_by_layer_and_prefers_an_explicit_value():
     assert effective_impact({"layer": "style"}) == "low"
     assert effective_impact({"layer": "style", "impact": "high"}) == "high"
     assert effective_impact({"layer": "style", "layers": ["style", "accuracy"]}) == "high"
+
+
+def test_a_low_confidence_accuracy_finding_does_not_default_to_high_impact():
+    from scripts._finding import effective_impact
+    assert effective_impact({"layer": "accuracy", "confidence": 0.95}) == "high"
+    assert effective_impact({"layer": "accuracy", "confidence": 0.8}) == "high"
+    assert effective_impact({"layer": "accuracy", "confidence": 0.4}) == "medium"
+    # An explicit impact is never changed, and a finding without a confidence keeps its layer default.
+    assert effective_impact({"layer": "accuracy", "confidence": 0.4, "impact": "high"}) == "high"
+    assert effective_impact({"layer": "accuracy"}) == "high"
+    assert effective_impact({"layer": "style", "confidence": 0.3}) == "low"

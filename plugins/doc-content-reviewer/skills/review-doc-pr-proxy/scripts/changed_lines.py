@@ -41,23 +41,28 @@ _DIFF_GIT_RE = re.compile(r"^diff --git ")
 # re-matched against hunk-body content afterward, which is what actually
 # closes the spoofing risk described above (the anchor alone isn't
 # enough without also refusing to look for more headers once past it).
-_NEW_FILE_HEADER_RE = re.compile(r"^\+\+\+ (?:b/(?P<path>.+)|(?P<devnull>/dev/null))$")
+# git ends the header of a path containing a space with a tab, which must not become part of the path.
+_NEW_FILE_HEADER_RE = re.compile(r"^\+\+\+ (?:b/(?P<path>.+?)\t?|(?P<devnull>/dev/null))$")
 
-# Matches a hunk header's new-file side, e.g. "@@ -12,3 +14,5 @@ context".
-# The count is omitted by unified-diff convention when it's exactly 1
-# (e.g. "+14 @@"), so a missing group means count=1, not count=0.
-_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
+# Matches a hunk header, e.g. "@@ -12,3 +14,5 @@ context". Only the new file's start line is
+# used: the body lines of the hunk say which of its lines were added.
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,\d+)? @@")
 
 
 def parse_changed_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     """Returns {file_path: [(start_line, end_line), ...]} — inclusive,
     1-based, new-file line ranges added or modified by this diff.
 
-    A hunk with count=0 on the new-file side (a pure deletion — nothing
-    was added at that location) contributes no range: there's no line in
-    the new file to attach a review scope to. A file touched only by such
-    hunks is omitted from the result entirely, same as a file with no
-    hunks at all.
+    Only the added ("+") lines count. A hunk's header range also covers the
+    context lines around an edit when the diff was made with context (`gh pr
+    diff` and `git diff` use 3 lines by default), and a context line is not
+    a changed line. Counting the "+" lines gives the same ranges for a
+    `--unified=0` diff and for one with context.
+
+    Consecutive added lines become one range. A pure deletion adds no line,
+    so it contributes no range: there is no line in the new file to attach a
+    review scope to. A file touched only by deletions is omitted from the
+    result entirely, same as a file with no hunks at all.
     """
     ranges: dict[str, list[tuple[int, int]]] = {}
     current_file: str | None = None
@@ -68,9 +73,13 @@ def parse_changed_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     # next literal "diff --git" line — the reason a hunk body can't
     # hijack current_file no matter what its content looks like.
     expect_header = False
+    # The new-file line number the next body line of the current hunk lands on;
+    # None outside a hunk.
+    new_line: int | None = None
     for line in diff_text.splitlines():
         if _DIFF_GIT_RE.match(line):
             expect_header = True
+            new_line = None
             continue
         if expect_header:
             header = _NEW_FILE_HEADER_RE.match(line)
@@ -79,12 +88,23 @@ def parse_changed_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
                 expect_header = False
             continue
         hunk = _HUNK_RE.match(line)
-        if hunk and current_file is not None:
-            start = int(hunk.group("start"))
-            count = int(hunk.group("count")) if hunk.group("count") is not None else 1
-            if count == 0:
-                continue
-            ranges.setdefault(current_file, []).append((start, start + count - 1))
+        if hunk:
+            new_line = int(hunk.group("start"))
+            continue
+        if new_line is None or current_file is None:
+            continue
+        if line.startswith("+"):
+            file_ranges = ranges.setdefault(current_file, [])
+            if file_ranges and file_ranges[-1][1] == new_line - 1:
+                file_ranges[-1] = (file_ranges[-1][0], new_line)
+            else:
+                file_ranges.append((new_line, new_line))
+            new_line += 1
+        elif line.startswith("-") or line.startswith("\\"):
+            # A removed line has no new-file number; "\ No newline at end of file" is not a line.
+            continue
+        else:
+            new_line += 1
     return ranges
 
 

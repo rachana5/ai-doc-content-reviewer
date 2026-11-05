@@ -46,9 +46,9 @@ def drop_outside_diff(
 ) -> list[dict]:
     """Remove findings from `layers` whose line is outside the PR's changed
     lines (a finding merged from several layers is kept if any layer is not
-    droppable). Used by profiles whose reference layer scans whole files: an
-    old dead link the PR did not touch is not this PR's problem, and listing
-    it makes the comment noisy. A finding marked `affected` (for example a link
+    droppable). Used for layers scoped to the PR's own lines (reference, style, clarity): an
+    old dead link or a wording nit on text the PR did not touch is not this PR's problem, and
+    listing it makes the comment noisy. A finding about the whole file (`line` 0) is kept. A finding marked `affected` (for example a link
     this PR broke by renaming a heading, found on a page the PR did not edit)
     is relevant to the PR and is kept."""
     if not layers:
@@ -56,6 +56,10 @@ def drop_outside_diff(
     kept = []
     for f in findings:
         if f.get("affected"):
+            kept.append(f)
+            continue
+        if f["line"] == 0:
+            # A finding about the whole file has no line to compare with the changed ranges.
             kept.append(f)
             continue
         fl = f.get("layers", [f["layer"]])

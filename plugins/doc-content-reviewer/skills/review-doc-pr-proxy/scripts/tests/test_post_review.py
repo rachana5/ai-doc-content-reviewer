@@ -397,3 +397,24 @@ def test_out_writes_the_comment_and_never_posts(monkeypatch, tmp_path, capsys):
     rc = pr.main(["--repo", "o/r", "--pr", "1", "--findings", str(f), "--changed-lines", str(c),
                   "--template", str(tmpl), "--out", str(out)])
     assert rc == 0 and called == [] and "1 suggestion" in out.read_text()
+
+
+def test_drop_outside_diff_covers_style_and_clarity_and_keeps_whole_file_findings():
+    from scripts import post_review as pr
+    ranges = {"a.md": [[10, 12]]}
+    layers = ["reference", "style", "clarity"]
+    fs = [
+        {"layer": "style", "file": "a.md", "line": 99},        # outside, dropped
+        {"layer": "clarity", "file": "a.md", "line": 99},      # outside, dropped
+        {"layer": "style", "file": "a.md", "line": 11},        # inside, kept
+        {"layer": "style", "file": "a.md", "line": 0},         # whole file (a generated file edited by hand), kept
+        {"layer": "accuracy", "file": "a.md", "line": 99},     # not a listed layer, kept
+        {"layer": "style", "file": "a.md", "line": 99, "affected": True},  # kept
+    ]
+    kept = pr.drop_outside_diff(fs, ranges, layers)
+    assert [(f["layer"], f["line"]) for f in kept] == [("style", 11), ("style", 0), ("accuracy", 99), ("style", 99)]
+
+
+def test_the_shipped_profile_drops_style_and_clarity_outside_the_diff_too():
+    from scripts import profile
+    assert {"reference", "style", "clarity"} <= set(profile.load("proxy")["drop_outside_diff_layers"])

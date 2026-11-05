@@ -26,6 +26,19 @@ something the PR did not touch is out of scope: do not report it.
   other — this is a direct, checkable-without-source-code comparison, not
   a judgment call, so treat a mismatch as a real finding on its own.
 
+- A claim about what a user, a client or Traefik can do, forwards or applies: find the option or
+  default that gates it and check the claim in the default configuration. When you cite a source line
+  for a sentence or a table row, read the branch around that line and list the conditions the statement
+  holds under. A statement that is true in only one case is a finding; name the case.
+- A constant or type name that only config structs and tests reference is not evidence of behavior.
+  Find a reader of it outside the tests before you cite it as the source.
+- Several examples for one concept (the formats of a page, a set of snippets): check each against the
+  same inputs the page's main example handles. A sibling that rejects or breaks an input the main
+  example accepts is an accuracy finding, not a completeness one.
+- A version the page states ("available since v3.6", "removed in v3.7"): find the commit that introduced
+  or removed the behavior (`git log -S<symbol>`) and the first tag that contains it (`git tag --contains`),
+  and check the page against it. When you cannot tell, report the claim as `unverifiable`.
+
 ## Process
 
 1. Identify every checkable claim in the target text (see above).
@@ -51,7 +64,7 @@ something the PR did not touch is out of scope: do not report it.
 ## Confidence calibration
 
 - 0.9+: you found the exact field/default in source and it unambiguously
-  contradicts the doc.
+  contradicts the doc. A finding below 0.8 is listed after the confirmed ones.
 - 0.5–0.8: behavior looks likely wrong but involves some interpretation
   (e.g. a version-gated default, or docs describing a superset of configs).
 - <0.5: you couldn't find corroborating source at all — flag as

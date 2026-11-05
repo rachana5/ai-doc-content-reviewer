@@ -20,7 +20,10 @@
   "skip_title_prefixes": [
     "chore(deps)",
     "fix(deps)",
-    "chore(deps-dev)"
+    "chore(deps-dev)",
+    "merge branch",
+    "merge remote-tracking branch",
+    "prepare release"
   ],
   "generated_files": [
     "docs/content/reference/install-configuration/configuration-options.md",
@@ -109,7 +112,9 @@
     "auth": "basicauth"
   },
   "drop_outside_diff_layers": [
-    "reference"
+    "reference",
+    "style",
+    "clarity"
   ],
   "engine_link_mode": "mkdocs"
 }

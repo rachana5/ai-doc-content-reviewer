@@ -166,9 +166,10 @@ def test_content_resembling_a_full_header_pair_does_not_hijack_current_file():
         "index 111..222 100644\n"
         "--- a/docs/real.md\n"
         "+++ b/docs/real.md\n"
-        "@@ -1,2 +1,2 @@\n"
+        "@@ -1 +1,2 @@\n"
         "--- a/old.md\n"
         "+++ b/new.md\n"
+        "+second added\n"
         "@@ -10 +14,2 @@\n"
         "+another line\n"
         "+yet another\n"
@@ -176,6 +177,92 @@ def test_content_resembling_a_full_header_pair_does_not_hijack_current_file():
     assert changed_lines.parse_changed_ranges(diff_text) == {
         "docs/real.md": [(1, 2), (14, 15)],
     }
+
+
+def test_context_lines_are_not_changed_lines():
+    # `gh pr diff` and a plain `git diff` carry 3 lines of context around an edit.
+    diff_text = (
+        "diff --git a/docs/foo.md b/docs/foo.md\n"
+        "--- a/docs/foo.md\n"
+        "+++ b/docs/foo.md\n"
+        "@@ -10,7 +10,7 @@ heading\n"
+        " context one\n"
+        " context two\n"
+        " context three\n"
+        "-old line\n"
+        "+new line\n"
+        " context four\n"
+        " context five\n"
+        " context six\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {"docs/foo.md": [(13, 13)]}
+
+
+def test_a_diff_with_context_gives_the_same_ranges_as_one_without():
+    header = "diff --git a/docs/foo.md b/docs/foo.md\n--- a/docs/foo.md\n+++ b/docs/foo.md\n"
+    without_context = header + "@@ -13 +13 @@\n-old line\n+new line\n@@ -30,0 +31,2 @@\n+added one\n+added two\n"
+    with_context = (
+        header
+        + "@@ -10,7 +10,7 @@\n c1\n c2\n c3\n-old line\n+new line\n c4\n c5\n c6\n"
+        + "@@ -27,3 +28,5 @@\n c7\n c8\n c9\n+added one\n+added two\n"
+    )
+    assert (
+        changed_lines.parse_changed_ranges(with_context)
+        == changed_lines.parse_changed_ranges(without_context)
+        == {"docs/foo.md": [(13, 13), (31, 32)]}
+    )
+
+
+def test_a_deletion_with_context_contributes_no_range():
+    diff_text = (
+        "diff --git a/docs/foo.md b/docs/foo.md\n"
+        "--- a/docs/foo.md\n"
+        "+++ b/docs/foo.md\n"
+        "@@ -5,7 +5,6 @@\n"
+        " c1\n c2\n c3\n"
+        "-removed\n"
+        " c4\n c5\n c6\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {}
+
+
+def test_a_no_newline_marker_does_not_shift_the_numbering():
+    diff_text = (
+        "diff --git a/docs/foo.md b/docs/foo.md\n"
+        "--- a/docs/foo.md\n"
+        "+++ b/docs/foo.md\n"
+        "@@ -1,2 +1,2 @@\n"
+        " first\n"
+        "-old last\n"
+        "\\ No newline at end of file\n"
+        "+new last\n"
+        "\\ No newline at end of file\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {"docs/foo.md": [(2, 2)]}
+
+
+def test_a_replaced_block_is_one_range_even_with_removed_lines_between_added_ones():
+    diff_text = (
+        "diff --git a/docs/foo.md b/docs/foo.md\n"
+        "--- a/docs/foo.md\n"
+        "+++ b/docs/foo.md\n"
+        "@@ -3,2 +3,2 @@\n"
+        "-old a\n+new a\n-old b\n+new b\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {"docs/foo.md": [(3, 4)]}
+
+
+def test_file_name_with_a_space_keeps_its_path_without_the_trailing_tab():
+    # git ends the "+++ b/<path>" line with a tab when the path contains a space.
+    diff_text = (
+        "diff --git a/docs/my page.md b/docs/my page.md\n"
+        "--- a/docs/my page.md\t\n"
+        "+++ b/docs/my page.md\t\n"
+        "@@ -1 +1,2 @@\n"
+        "+added\n"
+        "+added too\n"
+    )
+    assert changed_lines.parse_changed_ranges(diff_text) == {"docs/my page.md": [(1, 2)]}
 
 
 def test_line_in_ranges_checks_inclusive_bounds():
