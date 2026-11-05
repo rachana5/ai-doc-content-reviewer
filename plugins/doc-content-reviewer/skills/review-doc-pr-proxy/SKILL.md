@@ -45,6 +45,10 @@ This resolves the PR, skips dependency-bump, merge-forward and release-prep PRs,
 `context.json`, `classify.json` and `changed-lines.json`. A workflow may already have run it and
 supplied `context.json`; then skip the command. To replay a merged PR or run in a detached checkout,
 use the offline mode: `--files <file of changed paths> --author <login> --title <title> --base <ref> --head <ref>`.
+`--base` must resolve in the checkout to the PR's merge-base: a bare branch name falls back to `origin/<name>`, but a stale
+local branch of the same name wins, so pass the merge-base SHA when unsure (a wrong base lists hundreds of changed files).
+On a maintenance branch (`v2.11`, `v3.7`) the doc layout can differ from the profile's: treat `doc_targets` as hints only and
+rely on `find_affected_docs` to locate the real pages.
 Read `context.json`:
 
 | `action` | Run | Produce |
@@ -122,9 +126,12 @@ Follow `references/missing-docs-checklist.md` for each `user_facing_code` entry,
 `references/completeness-checklist.md` to the change set: a change that alters what an existing setup does
 needs an upgrade-impact finding, and every supported format needs the example. For these findings `quote`
 is the code change (as the missing-docs checklist says); the completeness checklist's anchor rule applies to
-`line` only. Write the results as
+`line` only. A completeness finding that anchors to the same file, line and quote as another finding is
+merged into it by `aggregate` and only the higher-confidence `suggested_fix` survives (it prints a warning): anchor it to a
+different line or quote, or fold its draft into the other finding. Write the results as
 `completeness` findings (merge into `completeness.json` when both exist). If `generated_touched` is
-non-empty, report it as the top style finding.
+non-empty, first check each edited row against its source (the Go struct tag or comment). Report a
+mismatch or a hand edit as the top style finding; when the edit matches the source, there is no finding.
 
 ## Step 3c: Check what you drafted
 
@@ -171,7 +178,7 @@ How the comment is delivered follows the invocation:
 - no flag: post it as one PR comment (skips if the marker `<!-- review-doc-pr:v1 -->` is already on
   the PR: a duplicate invocation, not an update);
 - `--dry-run`: print it, post nothing (use this first on any live repo, and for manual runs);
-- `--out comment.md`: write it to the file, post nothing (for a workflow that posts it itself).
+- `--out comment.md`: write it to the file, post nothing (for a workflow that posts it itself). Both flags together write the file and print nothing.
 
 `--profile` drops `reference`, `style` and `clarity` findings on lines the PR did not change, unless the
 finding is `affected: true`. A finding about the whole file (`line: 0`) is kept. `--classify` applies the silence rules: `silent`, or `missing-docs-only` with zero
@@ -183,6 +190,6 @@ member leads its group.
 
 ## Error handling
 
-- Style guide missing on the base branch: use the bundled copy and say so in the comment.
+- Style guide missing on the base branch: use the bundled copy. The comment template has no slot for this, so say so in the run's log or final report.
 - Link-check network failure: no finding for that URL; never a false "broken".
 - Comment over the size cap: shorten suggestions and state what was shortened.

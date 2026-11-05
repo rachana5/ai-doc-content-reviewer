@@ -24,6 +24,20 @@ from scripts import _gh, _git, changed_lines, missing_docs, pr_filter
 from scripts import profile as profile_mod
 
 
+def resolve_base(repo_root: Path, base: str) -> str:
+    """`base` if git can resolve it, else `origin/<base>`. A detached checkout (a replay, a CI
+    runner) has no local branch named like the PR's target, only the remote-tracking ref."""
+    for candidate in (base, f"origin/{base}"):
+        try:
+            _git.run(str(repo_root), ["rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}"])
+            return candidate
+        except _git.GitError:
+            continue
+    raise _git.GitError(
+        f"base ref '{base}' does not resolve in {repo_root} (tried '{base}' and 'origin/{base}'): "
+        f"fetch it, or pass --base a ref that resolves to the PR's merge-base")
+
+
 def build_context(
     *, prof: dict, pr: str, repo: str | None, files: list[str], author: str, title: str,
     base: str, head: str,
@@ -54,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--files", help="offline: file with one changed path per line")
     ap.add_argument("--author", help="offline: PR author login")
     ap.add_argument("--title", help="offline: PR title")
-    ap.add_argument("--base", help="offline: the PR's target branch")
+    ap.add_argument("--base", help="offline: the PR's target branch (a bare name falls back to origin/<name>; a stale local branch of that name wins, so pass the merge-base SHA when unsure)")
     ap.add_argument("--head", help="offline: the PR's own branch")
     args = ap.parse_args(argv)
 
@@ -74,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         ranges = {}
         if base and head:
             ranges = changed_lines.parse_changed_ranges(
-                changed_lines.fetch_diff(Path(args.repo_root), base, head))
+                changed_lines.fetch_diff(Path(args.repo_root), resolve_base(Path(args.repo_root), base), head))
     except (_gh.GhError, _git.GitError) as e:
         print(f"[prepare] ERROR: {e}", file=sys.stderr)
         return 1

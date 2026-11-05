@@ -6,7 +6,7 @@ Authoritative source: the Proxy style guide. Read it in this order and stop at t
    (a PR cannot change the rules it is judged by; never read the guide from the PR head).
 2. The bundled copy: `references/proxy-style-guide.md`.
 
-State in the comment which one was used.
+The comment template has no slot for this: state which one was used in the run's log or final report.
 
 ## Scope and calibration
 
@@ -38,8 +38,9 @@ State in the comment which one was used.
   on first mention, provider names unabbreviated.
 - Reference pages: no body H1, Configuration Examples then Configuration Options, table columns
   Field/Description/Default/Required, every supported format shown, tab labels in the specified order.
-- Generated files edited by hand (`generated_touched` from `scripts.missing_docs`): flag as the
-  top finding; the fix is the Go comment plus `make generate`.
+- Generated files edited (`generated_touched` from `scripts.missing_docs`): compare each edited row with its
+  source (the Go struct tag or comment). A row that differs, or a hand edit, is the top finding; the fix is the
+  Go comment plus `make generate`. A row that matches the source is a correctly generated edit: no finding.
 - Claims about third-party behavior with no source or link.
 
 ## What this layer does not do

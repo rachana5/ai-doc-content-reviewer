@@ -32,7 +32,8 @@ def find_affected(
     seeds: list[str] | None = None,
 ) -> dict:
     terms = sorted({t.strip() for t in terms if len(t.strip()) >= MIN_TERM_LEN})
-    patterns = {t: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(t)}(?![A-Za-z0-9_])") for t in terms}
+    # Case-insensitive: a page that writes `maxHeaderBytes` must match the Go field `MaxHeaderBytes`.
+    patterns = {t: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(t)}(?![A-Za-z0-9_])", re.IGNORECASE) for t in terms}
     exts = tuple(prof.get("doc_extensions", [".md"]))
     generated = prof.get("generated_files", [])
     in_pr = set(docs_changed)

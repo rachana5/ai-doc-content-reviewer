@@ -58,3 +58,10 @@ def test_short_terms_are_dropped_and_caps_apply(tmp_path):
         (root / f"docs/content/guide/p{i}.md").write_text("maxBackoff\n")
     out = fad.find_affected(root, PROF, ["maxBackoff"], [])
     assert len(out["files"]) == fad.MAX_FILES and out["truncated"] is True
+
+
+def test_term_match_ignores_case(tmp_path):
+    root = _tree(tmp_path)
+    (root / "docs/content/guide/camel.md").write_text("Set maxbackoff and MAXBACKOFF here")
+    out = fad.find_affected(root, PROF, ["maxBackoff"], [])
+    assert "docs/content/guide/camel.md" in {f["file"] for f in out["files"]}

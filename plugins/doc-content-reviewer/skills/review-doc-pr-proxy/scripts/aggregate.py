@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 from scripts import _finding
@@ -41,6 +42,13 @@ def dedup_findings(findings: list[dict]) -> list[dict]:
             by_location[key] = merged
         else:
             existing = by_location[key]
+            if finding.get("suggested_fix") != existing.get("suggested_fix"):
+                print(
+                    f"[aggregate] WARNING: {finding['layer']} and {existing['layer']} findings share "
+                    f"{finding['file']}:{finding['line']} and the same quote, so they were merged and only the "
+                    f"higher-confidence suggested_fix is kept. Re-anchor one to a different line or quote to keep both.",
+                    file=sys.stderr,
+                )
             if finding["layer"] not in existing["layers"]:
                 existing["layers"].append(finding["layer"])
             # Keep the higher-confidence reasoning/suggested_fix/auto_fixable
