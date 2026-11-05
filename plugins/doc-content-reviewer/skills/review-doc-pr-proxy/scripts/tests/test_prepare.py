@@ -38,3 +38,20 @@ def test_offline_main_writes_the_three_files(tmp_path):
     assert json.loads((out / "context.json").read_text())["action"] == "full-review"
     assert json.loads((out / "changed-lines.json").read_text()) == {}
     assert (out / "classify.json").exists()
+
+
+def test_resolve_base_falls_back_to_origin_and_fails_clearly(tmp_path):
+    import subprocess
+    from scripts import _git, prepare
+    run = lambda *a, cwd=tmp_path: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+    src, clone = tmp_path / "src", tmp_path / "clone"
+    src.mkdir()
+    run("init", "-q", "-b", "v2.11", cwd=src)
+    run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x", cwd=src)
+    run("clone", "-q", str(src), str(clone))
+    run("checkout", "-q", "--detach", cwd=clone)
+    run("branch", "-q", "-D", "v2.11", cwd=clone)
+    assert prepare.resolve_base(clone, "v2.11") == "origin/v2.11"
+    import pytest
+    with pytest.raises(_git.GitError, match="does not resolve"):
+        prepare.resolve_base(clone, "nope")

@@ -1,7 +1,10 @@
 """pr_filter.py: decide whether a PR is out of scope for review-doc-pr-proxy.
 
-Dependency-bump PRs (authors and title prefixes listed in the profile) are not
-documentation changes and have their own reviewer, so the run stops before any layer.
+Dependency-bump PRs, merge-forwards ("Merge branch v3.7 into master") and release prep
+(authors and title prefixes listed in the profile) are not new documentation: a dependency bump
+has its own reviewer, and the other two carry content that was already reviewed on its own PR.
+The run stops before any layer. Prefixes in the profile must be lowercase: the title is lowercased
+before it is compared.
 
 Exit 1: excluded, stop the run. Exit 0: in scope, proceed.
 """

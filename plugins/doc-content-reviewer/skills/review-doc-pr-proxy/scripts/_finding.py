@@ -22,6 +22,9 @@ DEFAULT_IMPACT_BY_LAYER = {
     "accuracy": "high", "completeness": "medium", "reference": "medium",
     "clarity": "low", "style": "low",
 }
+# A default `high` needs a confident finding: an accuracy finding the review could not confirm
+# (an `unverifiable` claim) must not lead the comment ahead of one confirmed in the code.
+HIGH_IMPACT_MIN_CONFIDENCE = 0.8
 AUTO_FIX_THRESHOLD = 0.8
 MAX_RULE_LEN = 80  # shown in the collapsed row of the PR comment
 
@@ -33,11 +36,16 @@ REQUIRED_KEYS = {
 
 def effective_impact(finding: dict) -> str:
     """The finding's own `impact`, else the default for its layer (the most
-    impactful default of a merged finding's layers)."""
+    impactful default of a merged finding's layers), lowered from `high` to `medium` when the
+    finding's confidence is below HIGH_IMPACT_MIN_CONFIDENCE."""
     if finding.get("impact") in VALID_IMPACTS:
         return finding["impact"]
     layers = finding.get("layers", [finding.get("layer")])
-    return min((DEFAULT_IMPACT_BY_LAYER.get(l, "low") for l in layers), key=IMPACT_RANK.__getitem__)
+    impact = min((DEFAULT_IMPACT_BY_LAYER.get(l, "low") for l in layers), key=IMPACT_RANK.__getitem__)
+    confidence = finding.get("confidence")
+    if impact == "high" and isinstance(confidence, (int, float)) and confidence < HIGH_IMPACT_MIN_CONFIDENCE:
+        return "medium"
+    return impact
 
 
 def make_finding(
