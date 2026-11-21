@@ -23,6 +23,8 @@ MARKER = "<!-- review-doc-pr:v1 -->"
 
 _EMPTY_BODY = f"""## Docs review: no issues found
 
+{{{{commit_line}}}}
+
 Automated review against the code and the style guide found nothing to flag. Nothing here blocks merge. This PR goes through its normal review.
 
 {MARKER}
@@ -101,9 +103,69 @@ def _is_simple_edit(f: dict) -> bool:
     )
 
 
+_REL_LINK = re.compile(r"\[([^\]]+)\]\((?!https?://|mailto:|#)([^)\s]+)\)")
+
+
+def neutralize_links(text: str) -> str:
+    """Rewrite a markdown link with a relative target, `[text](../a.md#x)`, as
+    `text (`../a.md#x`)`. The posting workflow replaces any link that is not a full HTTPS URL
+    with "(link unavailable: invalid HTTPS URL)" in prose and block quotes (seen on
+    traefik/traefik#14281 and #14302), so a relative link in plain text would reach the
+    contributor corrupted. Absolute links and in-page anchors are left alone. Fenced code is
+    not rewritten by the workflow, so callers keep verbatim text in fences instead."""
+    return _REL_LINK.sub(lambda m: f"{m.group(1)} (`{m.group(2)}`)", text)
+
+
+def fenced(text: str, lang: str = "") -> str:
+    """`text` in a code fence long enough to contain any fence inside it. Text in a fence is
+    shown and copied verbatim and is never rewritten, so a relative link survives."""
+    longest = max((len(m) for m in re.findall(r"`{3,}", text)), default=2)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}{lang}\n{text}\n{fence}"
+
+
+def commit_line(commit: str | None, repo: str | None = None) -> str:
+    """"Reviewed at commit `abc1234`." with the short SHA linked to the commit when the
+    repository is known. Empty when no commit is given."""
+    if not commit:
+        return ""
+    short = commit[:7]
+    if repo:
+        return f"Reviewed at commit [`{short}`](https://github.com/{repo}/commit/{commit})."
+    return f"Reviewed at commit `{short}`."
+
+
+STYLE_LAYERS = ("style", "clarity")
+
+
+def merge_same_rule(findings: list[dict]) -> list[dict]:
+    """One finding per (file, rule) for style and clarity. The same wording rule broken on
+    several lines of one file is one thing for the author to fix, not several: on
+    traefik/traefik#14302 one terminology rule in one table row was reported as three
+    suggestions. The first finding (by line) leads; the others are kept as `occurrences`
+    (line, quote, fix) and rendered inside it. Other layers are never merged: two accuracy
+    findings are two different facts."""
+    out: list[dict] = []
+    lead: dict[tuple, dict] = {}
+    for f in sorted(findings, key=lambda x: (x["file"], x["line"])):
+        if f["layer"] not in STYLE_LAYERS or not f.get("rule"):
+            out.append(f)
+            continue
+        key = (f["file"], f["layer"], f["rule"])
+        if key in lead:
+            lead[key].setdefault("occurrences", []).append(
+                {"line": f["line"], "quote": f["quote"], "suggested_fix": f["suggested_fix"]})
+            lead[key]["confidence"] = max(lead[key]["confidence"], f["confidence"])
+        else:
+            f = {**f}
+            lead[key] = f
+            out.append(f)
+    return out
+
+
 _LAYER_LABEL = {
     "accuracy": "Accuracy", "style": "Style guide", "reference": "Links and references",
-    "clarity": "Clarity", "completeness": "Missing docs",
+    "clarity": "Clarity", "completeness": "Completeness",
 }
 
 
@@ -112,23 +174,30 @@ def render_finding(f: dict, fix_cap: int | None = None) -> str:
     Expanded body: what is wrong, then the suggested fix. Nothing is cut off:
     the full reasoning is always in the body."""
     rule = f.get("rule") or _LAYER_LABEL.get(f["layer"], f["layer"].title())
-    summary = f'<code>{_short_path(f["file"])}:{f["line"]}</code> &nbsp;·&nbsp; {_html_inline(rule)}'
+    more = f["occurrences"] if f.get("occurrences") else []
+    where = f'{_short_path(f["file"])}:{f["line"]}' + (f" (+{len(more)} more)" if more else "")
+    summary = f'<code>{where}</code> &nbsp;·&nbsp; {_html_inline(rule)}'
     quote, fix = f["quote"].strip(), f["suggested_fix"].strip()
     if fix_cap is not None and len(fix) > fix_cap:
         fix = fix[:fix_cap].rstrip() + "\n\n_(shortened to fit the comment size limit)_"
     parts = [f"<details>\n<summary>{summary}</summary>\n"]
-    parts.append(f"**What's wrong:** {' '.join(str(f.get('reasoning', '')).split())}\n")
-    if _is_simple_edit(f):
+    parts.append(f"**What's wrong:** {neutralize_links(' '.join(str(f.get('reasoning', '')).split()))}\n")
+    if more:
+        parts.append("**Suggested fix, at each place:**\n")
+        for occ in [{"line": f["line"], "quote": quote, "suggested_fix": fix}, *more]:
+            parts.append(f"Line {occ['line']}:\n")
+            parts.append(f"{fenced('- ' + occ['quote'].strip() + chr(10) + '+ ' + occ['suggested_fix'].strip(), 'diff')}\n")
+    elif _is_simple_edit(f):
         parts.append("**Suggested fix:**\n")
-        parts.append(f"```diff\n- {quote}\n+ {fix}\n```\n")
+        parts.append(f"{fenced('- ' + quote + chr(10) + '+ ' + fix, 'diff')}\n")
     elif f["layer"] == "completeness":
-        parts.append(f"**Code change:** {quote}\n")
+        parts.append(f"**Code change:** {neutralize_links(quote)}\n")
         parts.append("**Suggested fix:**\n")
-        parts.append(f"{fix}\n")
+        parts.append(f"{fenced(fix, 'markdown')}\n")
     else:
-        parts.append("\n".join("> " + line for line in quote.splitlines()) + "\n")
+        parts.append(f"{fenced(quote)}\n")
         parts.append("**Suggested fix:**\n")
-        parts.append(f"{fix}\n")
+        parts.append(f"{fenced(fix, 'markdown')}\n")
     parts.append("</details>\n")
     return "\n".join(parts)
 
@@ -194,21 +263,57 @@ def render_group(key: str, members: list[dict], fix_cap: int | None = None) -> s
     return f"<details>\n<summary>{summary}</summary>\n\n{inner}\n</details>\n"
 
 
-def _render_units(units: list[list[dict]], fix_cap: int | None = None) -> str:
+def _render_units(units: list, fix_cap: int | None = None) -> str:
     out = []
     for unit in units:
-        if len(unit) == 1:
+        if isinstance(unit, tuple):
+            out.append(_render_fold(unit[1], fix_cap))
+        elif len(unit) == 1:
             out.append(render_finding(unit[0], fix_cap))
         else:
             out.append(render_group(_group_key(unit[0]) or "", unit, fix_cap))
     return "\n".join(out)
 
 
+STYLE_VISIBLE = 3  # wording-only units shown as their own row; the rest fold into one
+
+
+def fold_wording(units: list[list[dict]], visible: int = STYLE_VISIBLE) -> list:
+    """Keep the first `visible` units made only of style or clarity findings, and fold the
+    rest into one collapsed row placed where the first folded unit would sit. Wording nits
+    are the lowest-impact findings, so a long run of them no longer pushes real findings
+    out of view. Nothing is dropped: the fold opens to every finding."""
+    out: list = []
+    folded: list[list[dict]] = []
+    seen = 0
+    slot = None
+    for unit in units:
+        if all(f["layer"] in STYLE_LAYERS for f in unit):
+            seen += 1
+            if seen > visible:
+                if slot is None:
+                    slot = len(out)
+                    out.append(None)
+                folded.append(unit)
+                continue
+        out.append(unit)
+    if slot is not None:
+        out[slot] = ("fold", folded)
+    return out
+
+
+def _render_fold(folded: list[list[dict]], fix_cap: int | None = None) -> str:
+    n = sum(len(u) for u in folded)
+    inner = _render_units(folded, fix_cap)
+    return (f"<details>\n<summary>{n} more wording suggestions &nbsp;·&nbsp; style and clarity"
+            f"</summary>\n\n{inner}\n</details>\n")
+
+
 def render_findings_block(findings: list[dict]) -> str:
     """Most impactful first, then by layer importance, confidence, file and line.
     Eight or more findings get related ones grouped (see group_findings). If the
     result would exceed the size cap, shorten the longest suggested fixes."""
-    units = group_findings(findings)
+    units = fold_wording(group_findings(findings))
     block = _render_units(units)
     if len(block) > COMMENT_SIZE_CAP:
         block = _render_units(units, fix_cap=_FIX_CAP_ON_SHRINK)
@@ -216,7 +321,7 @@ def render_findings_block(findings: list[dict]) -> str:
     return block
 
 
-def render_comment(findings: list[dict], template_text: str, marker: str = MARKER) -> str:
+def render_comment(findings: list[dict], template_text: str, marker: str = MARKER, reviewed: str = "") -> str:
     """The zero-findings special case the mustache-ish template can't
     express on its own (see module docstring); anything non-empty just
     delegates to the already-reused aggregate.render_report().
@@ -239,6 +344,14 @@ def render_comment(findings: list[dict], template_text: str, marker: str = MARKE
     else:
         body = aggregate.render_report(findings, template_text)
     body = re.sub(r"\b1 suggestions\b", "1 suggestion", body)
+    # The commit line sits under the heading; a template without the placeholder gets it
+    # inserted after its first line.
+    if "{{commit_line}}" in body:
+        body = body.replace("{{commit_line}}\n\n", f"{reviewed}\n\n" if reviewed else "")
+        body = body.replace("{{commit_line}}", reviewed)
+    elif reviewed:
+        head, _, rest = body.partition("\n\n")
+        body = f"{head}\n\n{reviewed}\n\n{rest}"
     if marker != MARKER:
         body = body.replace(MARKER, marker)
     return body
@@ -276,6 +389,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--changed-lines", required=True, help="path to scripts.changed_lines's output JSON")
     parser.add_argument("--template", required=True, help="path to templates/pr-comment.md.tmpl")
     parser.add_argument("--marker", default=MARKER)
+    parser.add_argument("--commit", help="the PR head commit the review ran on (full SHA); shown "
+                        "under the heading as \"Reviewed at commit\", linked to the commit")
     parser.add_argument("--profile", help="product profile; its drop_outside_diff_layers removes out-of-diff findings of those layers")
     parser.add_argument("--classify", help="classify.json from scripts.missing_docs; decides whether any comment is posted at all")
     parser.add_argument(
@@ -295,14 +410,14 @@ def main(argv: list[str] | None = None) -> int:
         from scripts import profile as profile_mod
         findings = drop_outside_diff(
             findings, changed_ranges, profile_mod.load(args.profile).get("drop_outside_diff_layers", []))
-    findings = all_as_suggestions(findings)
+    findings = merge_same_rule(all_as_suggestions(findings))
 
     # Silence rules: nothing to review, or a code-only PR with no docs gap found.
     if action == "silent" or (action == "missing-docs-only" and not findings):
         print(f"[post_review] action={action} with {len(findings)} finding(s): no comment posted.")
         return 0
     template_text = Path(args.template).read_text()
-    body = render_comment(findings, template_text, args.marker)
+    body = render_comment(findings, template_text, args.marker, commit_line(args.commit, args.repo))
 
     if args.out:
         Path(args.out).write_text(body)

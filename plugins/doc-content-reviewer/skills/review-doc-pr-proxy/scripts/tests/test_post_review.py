@@ -321,7 +321,7 @@ def test_eight_or_more_suggestions_group_by_shared_key():
     assert sorted(len(u) for u in units) == [1, 1, 1, 1, 1, 3]
     out = pr.render_findings_block(fs)
     assert "3 related suggestions" in out and "<code>maxBurst</code>" in out
-    assert out.count("<details>") == 1 + 8   # one group plus each finding stays its own row
+    assert out.count("<details>") == 1 + 8 + 1   # one group, each finding its own row, plus the wording fold
 
 
 def test_link_findings_group_by_default_and_a_lone_key_stays_single():
@@ -418,3 +418,130 @@ def test_drop_outside_diff_covers_style_and_clarity_and_keeps_whole_file_finding
 def test_the_shipped_profile_drops_style_and_clarity_outside_the_diff_too():
     from scripts import profile
     assert {"reference", "style", "clarity"} <= set(profile.load("proxy")["drop_outside_diff_layers"])
+
+
+# --- noise, links and commit line (traefik/traefik review audit, 2026-11-21) ---
+
+def _g(layer, line, rule=None, file="docs/a.md", **kw):
+    f = _f(layer, "suggestion", line, **kw)
+    f["file"] = file
+    if rule:
+        f["rule"] = rule
+    return f
+
+
+def _style(line, rule="Style guide: Clarity Rules", **kw):
+    return _g("style", line, rule=rule, **kw)
+
+
+def test_relative_links_in_prose_are_neutralized_but_urls_and_anchors_are_kept():
+    from scripts import post_review as pr
+    text = "See [tracing](./tracing.md#opt-x), [site](https://example.com/a) and [here](#top)."
+    out = pr.neutralize_links(text)
+    assert "tracing (`./tracing.md#opt-x`)" in out
+    assert "[site](https://example.com/a)" in out and "[here](#top)" in out
+    assert "](./tracing.md" not in out
+
+
+def test_reasoning_and_completeness_code_change_are_neutralized():
+    from scripts import post_review as pr
+    f = _f("accuracy", "suggestion", 3, reasoning="Wrong, see [x](../x.md).")
+    assert "](../x.md)" not in pr.render_finding(f)
+    c = _f("completeness", "suggestion", 1, quote="a: see [x](../x.md)", fix="Add it.")
+    assert "](../x.md)" not in pr.render_finding(c)
+
+
+def test_block_quote_and_prose_fix_are_fenced_so_links_survive_verbatim():
+    from scripts import post_review as pr
+    q = "Text with [link](../a.md) over\nthree\nlines"
+    f = _f("accuracy", "suggestion", 3, quote=q, fix="Line one\nSee [link](../a.md)")
+    out = pr.render_finding(f)
+    assert "```\n" + q + "\n```" in out
+    assert "```markdown\nLine one\nSee [link](../a.md)\n```" in out
+    assert "> Text" not in out
+
+
+def test_fence_grows_to_contain_a_fence_inside_the_fix():
+    from scripts import post_review as pr
+    out = pr.fenced("Add:\n```yaml\na: 1\n```", "markdown")
+    assert out.startswith("````markdown\n") and out.endswith("\n````")
+
+
+def test_commit_line_links_the_short_sha_and_is_empty_without_a_commit():
+    from scripts import post_review as pr
+    sha = "e75dd61a661f8745bde7e92618e317cc1a1e21f0"
+    assert pr.commit_line(sha, "traefik/traefik") == (
+        f"Reviewed at commit [`e75dd61`](https://github.com/traefik/traefik/commit/{sha}).")
+    assert pr.commit_line(sha) == "Reviewed at commit `e75dd61`."
+    assert pr.commit_line(None, "traefik/traefik") == ""
+
+
+def test_comment_shows_the_commit_under_the_heading_and_omits_the_slot_without_one():
+    from scripts import post_review as pr
+    tmpl = open("templates/pr-comment.md.tmpl").read()
+    f = [_f("accuracy", "suggestion", 3)]
+    with_commit = pr.render_comment(f, tmpl, reviewed="Reviewed at commit `abc1234`.")
+    lines = with_commit.splitlines()
+    assert lines[0].startswith("## Docs review") and lines[2] == "Reviewed at commit `abc1234`."
+    assert "{{" not in with_commit
+    without = pr.render_comment(f, tmpl)
+    assert "{{" not in without and "Reviewed at" not in without and "\n\n\n\n" not in without
+    empty = pr.render_comment([], tmpl, reviewed="Reviewed at commit `abc1234`.")
+    assert "no issues found" in empty and "Reviewed at commit `abc1234`." in empty and "{{" not in empty
+    assert "{{" not in pr.render_comment([], tmpl)
+
+
+def test_same_rule_in_one_file_is_one_finding_with_every_occurrence():
+    from scripts import post_review as pr
+    fs = [_style(369, quote="the EntryPoint", fix="the entry point"),
+          _style(398, quote="EntryPoint option", fix="entry point option"),
+          _style(399, quote="(EntryPoint)", fix="(entry point)")]
+    merged = pr.merge_same_rule(fs)
+    assert len(merged) == 1 and len(merged[0]["occurrences"]) == 2
+    out = pr.render_finding(merged[0])
+    assert "a.md:369" in out and "(+2 more)" in out
+    for line in ("369", "398", "399"):
+        assert f"Line {line}:" in out
+    assert pr.render_comment(merged, open("templates/pr-comment.md.tmpl").read()).startswith("## Docs review: 1 suggestion\n")
+
+
+def test_merge_keeps_different_rules_files_and_non_style_layers_apart():
+    from scripts import post_review as pr
+    fs = [_style(1), _style(2, rule="Style guide: Voice"),
+          _g("style", 3, rule="Style guide: Clarity Rules", file="docs/b.md"),
+          _g("accuracy", 4, rule="Accuracy: x"),
+          _g("accuracy", 5, rule="Accuracy: x")]
+    assert len(pr.merge_same_rule(fs)) == 5
+
+
+def test_merge_does_not_mutate_its_input():
+    from scripts import post_review as pr
+    fs = [_style(1), _style(2)]
+    pr.merge_same_rule(fs)
+    assert "occurrences" not in fs[0]
+
+
+def test_wording_beyond_three_units_folds_into_one_row_and_nothing_is_dropped():
+    from scripts import post_review as pr
+    fs = [_style(i, rule=f"Style guide: Rule {i}") for i in range(1, 7)]
+    out = pr.render_findings_block(fs)
+    assert "3 more wording suggestions" in out
+    for i in range(1, 7):
+        assert f"Rule {i}</summary>" in out
+    assert pr.render_findings_block(fs[:3]).count("more wording") == 0
+
+
+def test_a_fold_never_swallows_accuracy_or_missing_docs():
+    from scripts import post_review as pr
+    fs = [_style(i, rule=f"Style guide: Rule {i}") for i in range(1, 6)]
+    fs.append(_g("accuracy", 50, rule="Accuracy: default"))
+    out = pr.render_findings_block(fs)
+    head = out.split("more wording")[0]
+    assert "Accuracy: default" in head
+
+
+def test_completeness_without_a_rule_is_labelled_completeness_not_missing_docs():
+    from scripts import post_review as pr
+    f = _f("completeness", "suggestion", 1, quote="x", fix="y")
+    f.pop("rule", None)
+    assert "Completeness" in pr.render_finding(f).split("</summary>")[0]

@@ -23,6 +23,14 @@ The comment template has no slot for this: state which one was used in the run's
   `reasoning`, say what is wrong with the changed text; don't repeat the section name.
   `suggested_fix` is the literal replacement for `quote`.
 - When following a rule would make text less accurate or less clear, accuracy wins; do not flag it.
+- One finding per broken place: quote the exact text of each line. `post_review.py` merges findings that share a
+  file and `rule` into one suggestion, so do not widen a `quote` to cover several lines and do not skip a
+  repeat to keep the count down.
+- Flag a term only where the sentence uses it for the concept the guide names. Do not flag a literal name
+  (a field, option, span, label or UI string that has to match the product) and do not flag heading text the
+  PR did not change.
+- A rule the guide states but the rest of the page ignores is still a finding on changed lines, but never
+  more than one `rule` label per issue: pick the guide's section name and reuse it for every occurrence.
 - Never treat "how neighboring pages do it" as evidence. The guide says not to copy a pattern
   that contradicts it.
 

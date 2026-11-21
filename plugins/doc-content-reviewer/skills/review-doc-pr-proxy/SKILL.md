@@ -170,8 +170,14 @@ with the comment that is produced.
 PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.post_review \
   --repo <owner/repo> --pr <pr> --findings merged.json \
   --changed-lines changed-lines.json --template templates/pr-comment.md.tmpl \
-  --profile proxy --classify classify.json [--dry-run | --out comment.md]
+  --profile proxy --classify classify.json \
+  --commit "$(gh pr view <pr> --repo <owner/repo> --json headRefOid -q .headRefOid)" \
+  [--dry-run | --out comment.md]
 ```
+
+`--commit` is the PR head the review ran on. The comment shows it under the heading as "Reviewed at commit
+`abc1234`", linked to the commit, so a reviewer can tell which version of the PR the findings describe (the
+PR may have moved on since). Pass the SHA you reviewed, not whatever is checked out afterwards.
 
 How the comment is delivered follows the invocation:
 
@@ -187,6 +193,17 @@ issues found" comment. Findings are ordered most to least impactful: by `impact`
 then accuracy, missing docs, links, clarity, style, then confidence. With 8 or more findings, related
 ones are grouped into one collapsed row (same `group` value, or all link findings); the most impactful
 member leads its group.
+
+Noise control, applied by `post_review.py` after your layers run, so emit findings as usual:
+
+- **Same rule, same file, one finding.** Style and clarity findings that share a file and `rule` are merged into
+  one suggestion that lists every line. The heading counts the merged finding once.
+- **Wording folds.** Beyond three wording-only rows (style, clarity), the rest sit in one collapsed row,
+  "N more wording suggestions". Accuracy, missing-docs and link findings are never folded.
+- **Relative links.** The posting workflow replaces a link that is not a full HTTPS URL with "(link unavailable:
+  invalid HTTPS URL)" in prose and block quotes. `post_review.py` rewrites a relative link in prose as text plus
+  a code-formatted path, and puts quotes and prose fixes in code fences, which are not rewritten. Write fixes
+  with the real relative link; do not shorten it.
 
 ## Error handling
 
