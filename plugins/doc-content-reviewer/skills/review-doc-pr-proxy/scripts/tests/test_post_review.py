@@ -471,7 +471,9 @@ def test_commit_line_links_the_short_sha_and_is_empty_without_a_commit():
     from scripts import post_review as pr
     sha = "e75dd61a661f8745bde7e92618e317cc1a1e21f0"
     assert pr.commit_line(sha, "traefik/traefik") == (
-        f"Reviewed at commit [`e75dd61`](https://github.com/traefik/traefik/commit/{sha}).")
+        f"Reviewed at commit `e75dd61` ([view](https://github.com/traefik/traefik/commit/{sha})).")
+    # traefik/ai's once-per-PR gate searches for this exact prefix
+    assert pr.commit_line(sha, "traefik/traefik").startswith("Reviewed at commit `")
     assert pr.commit_line(sha) == "Reviewed at commit `e75dd61`."
     assert pr.commit_line(None, "traefik/traefik") == ""
 

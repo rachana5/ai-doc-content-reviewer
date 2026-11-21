@@ -176,7 +176,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.post_review \
 ```
 
 `--commit` is the PR head the review ran on. The comment shows it under the heading as "Reviewed at commit
-`abc1234`", linked to the commit, so a reviewer can tell which version of the PR the findings describe (the
+`abc1234` (view)", with a link to the commit, so a reviewer can tell which version of the PR the findings describe (the
 PR may have moved on since). Pass the SHA you reviewed, not whatever is checked out afterwards.
 
 How the comment is delivered follows the invocation:

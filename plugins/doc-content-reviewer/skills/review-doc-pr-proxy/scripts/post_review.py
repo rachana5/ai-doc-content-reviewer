@@ -125,13 +125,15 @@ def fenced(text: str, lang: str = "") -> str:
 
 
 def commit_line(commit: str | None, repo: str | None = None) -> str:
-    """"Reviewed at commit `abc1234`." with the short SHA linked to the commit when the
-    repository is known. Empty when no commit is given."""
+    """"Reviewed at commit `abc1234` ([view](commit URL))." The text up to and including the
+    opening backtick must stay exactly as written: the traefik/ai workflow finds a PR it
+    already reviewed by searching comments for "Reviewed at commit `". A link wrapped around
+    the SHA would break that match, so the link follows it. Empty when no commit is given."""
     if not commit:
         return ""
     short = commit[:7]
     if repo:
-        return f"Reviewed at commit [`{short}`](https://github.com/{repo}/commit/{commit})."
+        return f"Reviewed at commit `{short}` ([view](https://github.com/{repo}/commit/{commit}))."
     return f"Reviewed at commit `{short}`."
 
 
