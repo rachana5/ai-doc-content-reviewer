@@ -171,13 +171,14 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.post_review \
   --repo <owner/repo> --pr <pr> --findings merged.json \
   --changed-lines changed-lines.json --template templates/pr-comment.md.tmpl \
   --profile proxy --classify classify.json \
-  --commit "$(jq -r .head_sha context.json)" \
+  --context context.json \
   [--dry-run | --out comment.md]
 ```
 
-`--commit` is the PR head the review ran on: the `head_sha` that Step 1 (`prepare`) recorded in `context.json` when the
+`--context context.json` supplies the PR head the review ran on (`--commit <sha>` overrides it): the `head_sha` that Step 1 (`prepare`) recorded in `context.json` when the
 review started. Never look it up again at posting time: if the author pushed in between, the comment would name a commit
-nobody reviewed. `post_review` refuses to post or write a comment without a full 40-character SHA (only `--dry-run`
+nobody reviewed. A `context.json` written by a `prepare` that predates this field has no `head_sha`: run Step 1 again
+instead of supplying a SHA from a later lookup. `post_review` refuses to post or write a comment without a full 40-character SHA (only `--dry-run`
 goes on without one), because the `traefik/ai` workflow finds a PR it already reviewed by searching comments for
 "Reviewed at commit `"; a comment without that line would be reviewed again. The comment shows it under the heading as "Reviewed at commit
 `abc1234` (view)", with a link to the commit, so a reviewer can tell which version of the PR the findings describe (the

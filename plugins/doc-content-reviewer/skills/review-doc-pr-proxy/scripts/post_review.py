@@ -129,13 +129,18 @@ def neutralize_links(text: str) -> str:
         label = label or ("image" if bang else target)
         return f"{label} (`{target}`)"
 
-    out, pos = [], 0
-    for code in _CODE_SPAN.finditer(text):
-        out.append(_MD_LINK.sub(fix, text[pos:code.start()]))
-        out.append(code.group(0))
-        pos = code.end()
-    out.append(_MD_LINK.sub(fix, text[pos:]))
-    return "".join(out)
+    # Code spans are swapped for placeholders first, so a link whose label holds code
+    # (`[`entryPoints`](../x.md)`) is still seen whole, and a link written inside a code span
+    # is never touched. The spans are put back afterwards.
+    spans: list[str] = []
+
+    def stash(m: re.Match) -> str:
+        spans.append(m.group(0))
+        return f"\x00{len(spans) - 1}\x00"
+
+    protected = _CODE_SPAN.sub(stash, text)
+    rewritten = _MD_LINK.sub(fix, protected)
+    return re.sub(r"\x00(\d+)\x00", lambda m: spans[int(m.group(1))], rewritten)
 
 
 def fenced(text: str, lang: str = "") -> str:
@@ -146,11 +151,11 @@ def fenced(text: str, lang: str = "") -> str:
     return f"{fence}{lang}\n{text}\n{fence}"
 
 
-_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 def is_full_sha(commit: str | None) -> bool:
-    return bool(commit and _FULL_SHA.match(commit))
+    return bool(commit and _FULL_SHA.fullmatch(commit))
 
 
 def commit_line(commit: str | None, repo: str | None = None) -> str:
@@ -437,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
                         "heading as \"Reviewed at commit\". Required unless --dry-run: the traefik/ai "
                         "workflow finds an already-reviewed PR by that text, so a comment without it "
                         "would be reviewed again.")
+    parser.add_argument("--context", help="context.json from scripts.prepare; its `head_sha` is used when "
+                        "--commit is not given")
     parser.add_argument("--profile", help="product profile; its drop_outside_diff_layers removes out-of-diff findings of those layers")
     parser.add_argument("--classify", help="classify.json from scripts.missing_docs; decides whether any comment is posted at all")
     parser.add_argument(
@@ -462,9 +469,13 @@ def main(argv: list[str] | None = None) -> int:
     if action == "silent" or (action == "missing-docs-only" and not findings):
         print(f"[post_review] action={action} with {len(findings)} finding(s): no comment posted.")
         return 0
+    if not args.commit and args.context:
+        args.commit = json.loads(Path(args.context).read_text()).get("head_sha") or None
     if not is_full_sha(args.commit):
-        msg = (f"[post_review] --commit must be the full 40-character head SHA the review ran on "
-               f"(got {args.commit!r}); take it from context.json (`head_sha`), not from a lookup made now.")
+        msg = (f"[post_review] no full 40-character head SHA for the review (got {args.commit!r}). Pass "
+               f"--commit <sha>, or --context context.json from a `prepare` run that records `head_sha`: an "
+               f"older context.json has none, so run Step 1 again. Do not look the head up now: it may "
+               f"have moved since the review started.")
         if not args.dry_run:
             print(msg + " Nothing posted or written.", file=sys.stderr)
             return 2

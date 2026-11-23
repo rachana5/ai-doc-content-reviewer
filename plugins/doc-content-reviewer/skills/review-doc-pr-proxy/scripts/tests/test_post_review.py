@@ -666,3 +666,44 @@ def test_links_inside_inline_code_are_left_alone():
     out = pr.neutralize_links(text)
     assert "`[text](../a.md)`" in out and "real (`../b.md`)" in out
     assert pr.neutralize_links("``[x](../a.md)`` end") == "``[x](../a.md)`` end"
+
+
+# --- second review round on PR 7 ---
+
+def test_a_link_whose_label_holds_code_is_rewritten_whole():
+    from scripts import post_review as pr
+    out = pr.neutralize_links("Set [`entryPoints`](../entrypoints.md#opt-x) and [a `b` c](./d.md).")
+    assert out == "Set `entryPoints` (`../entrypoints.md#opt-x`) and a `b` c (`./d.md`)."
+    assert "](" not in out
+
+
+def test_code_next_to_a_link_and_a_link_inside_code_are_both_handled():
+    from scripts import post_review as pr
+    out = pr.neutralize_links("Use `[x](../a.md)` or [`y`](../b.md), then `z`.")
+    assert "`[x](../a.md)`" in out and "`y` (`../b.md`)" in out and out.endswith("then `z`.")
+    assert pr.neutralize_links("[`y`](https://e.io/p)") == "[`y`](https://e.io/p)"
+
+
+def test_a_sha_with_a_trailing_newline_is_refused():
+    from scripts import post_review as pr
+    assert pr.is_full_sha(_SHA) and not pr.is_full_sha(_SHA + "\n") and not pr.is_full_sha(" " + _SHA)
+
+
+def test_context_json_supplies_the_commit_and_commit_overrides_it(tmp_path):
+    ctx = tmp_path / "context.json"
+    ctx.write_text(json.dumps({"head_sha": _SHA}))
+    out = tmp_path / "o.md"
+    assert _run_main(tmp_path, ["--context", str(ctx), "--out", str(out)]) == 0
+    assert "`e75dd61`" in out.read_text()
+    other = "b" * 40
+    assert _run_main(tmp_path, ["--context", str(ctx), "--commit", other, "--out", str(out)]) == 0
+    assert "`bbbbbbb`" in out.read_text()
+
+
+def test_a_context_without_head_sha_fails_with_a_message_that_says_how_to_fix_it(tmp_path, capsys):
+    ctx = tmp_path / "context.json"
+    ctx.write_text(json.dumps({"action": "full-review"}))
+    out = tmp_path / "o.md"
+    assert _run_main(tmp_path, ["--context", str(ctx), "--out", str(out)]) == 2
+    err = capsys.readouterr().err
+    assert not out.exists() and "run Step 1 again" in err and "--commit" in err
