@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import tempfile
 from pathlib import Path
 
@@ -103,17 +104,38 @@ def _is_simple_edit(f: dict) -> bool:
     )
 
 
-_REL_LINK = re.compile(r"\[([^\]]+)\]\((?!https?://|mailto:|#)([^)\s]+)\)")
+# A markdown link or image: `[text](target)` / `![alt](target)`. The target may hold one level of
+# balanced parentheses (`page_(draft).md`).
+_MD_LINK = re.compile(r"(!?)\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+\"[^\"]*\")?\)")
+_CODE_SPAN = re.compile(r"(`+)(?:(?!\1).)+?\1", re.DOTALL)
+
+
+def _is_safe_target(target: str) -> bool:
+    """Only a full HTTPS URL, an in-page anchor or a mailto survives the posting workflow."""
+    return target.startswith(("https://", "#", "mailto:"))
 
 
 def neutralize_links(text: str) -> str:
-    """Rewrite a markdown link with a relative target, `[text](../a.md#x)`, as
-    `text (`../a.md#x`)`. The posting workflow replaces any link that is not a full HTTPS URL
-    with "(link unavailable: invalid HTTPS URL)" in prose and block quotes (seen on
-    traefik/traefik#14281 and #14302), so a relative link in plain text would reach the
-    contributor corrupted. Absolute links and in-page anchors are left alone. Fenced code is
-    not rewritten by the workflow, so callers keep verbatim text in fences instead."""
-    return _REL_LINK.sub(lambda m: f"{m.group(1)} (`{m.group(2)}`)", text)
+    """Rewrite a markdown link or image whose target is not a full HTTPS URL, `[text](../a.md#x)`,
+    as `text (`../a.md#x`)`. The posting workflow replaces such a link (a relative path, but also
+    `http://`) with "(link unavailable: invalid HTTPS URL)" in prose and block quotes, so it would
+    reach the contributor corrupted. HTTPS links, in-page anchors and mailto links are left alone.
+    Text inside inline code is never touched (it is shown verbatim). Fenced code is not rewritten
+    by the workflow, so callers keep verbatim text in fences instead."""
+    def fix(m: re.Match) -> str:
+        bang, label, target = m.group(1), m.group(2), m.group(3)
+        if _is_safe_target(target):
+            return m.group(0)
+        label = label or ("image" if bang else target)
+        return f"{label} (`{target}`)"
+
+    out, pos = [], 0
+    for code in _CODE_SPAN.finditer(text):
+        out.append(_MD_LINK.sub(fix, text[pos:code.start()]))
+        out.append(code.group(0))
+        pos = code.end()
+    out.append(_MD_LINK.sub(fix, text[pos:]))
+    return "".join(out)
 
 
 def fenced(text: str, lang: str = "") -> str:
@@ -122,6 +144,13 @@ def fenced(text: str, lang: str = "") -> str:
     longest = max((len(m) for m in re.findall(r"`{3,}", text)), default=2)
     fence = "`" * max(3, longest + 1)
     return f"{fence}{lang}\n{text}\n{fence}"
+
+
+_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def is_full_sha(commit: str | None) -> bool:
+    return bool(commit and _FULL_SHA.match(commit))
 
 
 def commit_line(commit: str | None, repo: str | None = None) -> str:
@@ -141,7 +170,8 @@ STYLE_LAYERS = ("style", "clarity")
 
 
 def merge_same_rule(findings: list[dict]) -> list[dict]:
-    """One finding per (file, rule) for style and clarity. The same wording rule broken on
+    """One finding per (file, layer, rule) for style and clarity: a style and a clarity finding with
+    the same rule label stay apart. The same wording rule broken on
     several lines of one file is one thing for the author to fix, not several: on
     traefik/traefik#14302 one terminology rule in one table row was reported as three
     suggestions. The first finding (by line) leads; the others are kept as `occurrences`
@@ -150,7 +180,9 @@ def merge_same_rule(findings: list[dict]) -> list[dict]:
     out: list[dict] = []
     lead: dict[tuple, dict] = {}
     for f in sorted(findings, key=lambda x: (x["file"], x["line"])):
-        if f["layer"] not in STYLE_LAYERS or not f.get("rule"):
+        if f["layer"] not in STYLE_LAYERS or not f.get("rule") or f["line"] == 0:
+            # A finding about the whole file (line 0) has no line to list and would lead the
+            # merged row with a meaningless location, so it stays on its own.
             out.append(f)
             continue
         key = (f["file"], f["layer"], f["rule"])
@@ -171,6 +203,21 @@ _LAYER_LABEL = {
 }
 
 
+def _fix_block(f: dict, with_label: bool = False) -> str:
+    """The quote and suggested fix of one finding (or one occurrence of a merged one). A one-line
+    literal replacement is a before/after diff; anything else (a `(needs a human to ...)` fix, a
+    multi-line quote, a completeness draft) is shown as a fenced quote and a fenced fix, never as
+    paste-able replacement text."""
+    quote, fix = f["quote"], f["suggested_fix"]
+    label = "**Suggested fix:**\n\n" if with_label else ""
+    if _is_simple_edit(f):
+        return f"{label}{fenced('- ' + quote + chr(10) + '+ ' + fix, 'diff')}\n\n"
+    if f["layer"] == "completeness":
+        return (f"**Code change:** {neutralize_links(quote)}\n\n**Suggested fix:**\n\n"
+                f"{fenced(fix, 'markdown')}\n\n")
+    return f"{fenced(quote)}\n\n{'**Suggested fix:**' + chr(10) + chr(10) if with_label else ''}{fenced(fix, 'markdown')}\n\n"
+
+
 def render_finding(f: dict, fix_cap: int | None = None) -> str:
     """Collapsed row: marker, file:line, the rule that is not being followed.
     Expanded body: what is wrong, then the suggested fix. Nothing is cut off:
@@ -187,19 +234,13 @@ def render_finding(f: dict, fix_cap: int | None = None) -> str:
     if more:
         parts.append("**Suggested fix, at each place:**\n")
         for occ in [{"line": f["line"], "quote": quote, "suggested_fix": fix}, *more]:
+            ofix = occ["suggested_fix"].strip()
+            if fix_cap is not None and len(ofix) > fix_cap:
+                ofix = ofix[:fix_cap].rstrip() + "\n\n_(shortened to fit the comment size limit)_"
             parts.append(f"Line {occ['line']}:\n")
-            parts.append(f"{fenced('- ' + occ['quote'].strip() + chr(10) + '+ ' + occ['suggested_fix'].strip(), 'diff')}\n")
-    elif _is_simple_edit(f):
-        parts.append("**Suggested fix:**\n")
-        parts.append(f"{fenced('- ' + quote + chr(10) + '+ ' + fix, 'diff')}\n")
-    elif f["layer"] == "completeness":
-        parts.append(f"**Code change:** {neutralize_links(quote)}\n")
-        parts.append("**Suggested fix:**\n")
-        parts.append(f"{fenced(fix, 'markdown')}\n")
+            parts.append(_fix_block({**f, "quote": occ["quote"].strip(), "suggested_fix": ofix}))
     else:
-        parts.append(f"{fenced(quote)}\n")
-        parts.append("**Suggested fix:**\n")
-        parts.append(f"{fenced(fix, 'markdown')}\n")
+        parts.append(_fix_block({**f, "quote": quote, "suggested_fix": fix}, with_label=True))
     parts.append("</details>\n")
     return "\n".join(parts)
 
@@ -391,8 +432,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--changed-lines", required=True, help="path to scripts.changed_lines's output JSON")
     parser.add_argument("--template", required=True, help="path to templates/pr-comment.md.tmpl")
     parser.add_argument("--marker", default=MARKER)
-    parser.add_argument("--commit", help="the PR head commit the review ran on (full SHA); shown "
-                        "under the heading as \"Reviewed at commit\", linked to the commit")
+    parser.add_argument("--commit", help="the PR head commit the review ran on (full 40-character SHA; "
+                        "`head_sha` of context.json, captured when the review started). Shown under the "
+                        "heading as \"Reviewed at commit\". Required unless --dry-run: the traefik/ai "
+                        "workflow finds an already-reviewed PR by that text, so a comment without it "
+                        "would be reviewed again.")
     parser.add_argument("--profile", help="product profile; its drop_outside_diff_layers removes out-of-diff findings of those layers")
     parser.add_argument("--classify", help="classify.json from scripts.missing_docs; decides whether any comment is posted at all")
     parser.add_argument(
@@ -418,6 +462,14 @@ def main(argv: list[str] | None = None) -> int:
     if action == "silent" or (action == "missing-docs-only" and not findings):
         print(f"[post_review] action={action} with {len(findings)} finding(s): no comment posted.")
         return 0
+    if not is_full_sha(args.commit):
+        msg = (f"[post_review] --commit must be the full 40-character head SHA the review ran on "
+               f"(got {args.commit!r}); take it from context.json (`head_sha`), not from a lookup made now.")
+        if not args.dry_run:
+            print(msg + " Nothing posted or written.", file=sys.stderr)
+            return 2
+        print(msg + " Dry run: continuing without the commit line.", file=sys.stderr)
+        args.commit = None
     template_text = Path(args.template).read_text()
     body = render_comment(findings, template_text, args.marker, commit_line(args.commit, args.repo))
 
@@ -441,5 +493,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    import sys
     sys.exit(main())

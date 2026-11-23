@@ -44,7 +44,7 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.prepare --pr <pr> --repo-roo
 This resolves the PR, skips dependency-bump, merge-forward and release-prep PRs, classifies the changed files, and writes
 `context.json`, `classify.json` and `changed-lines.json`. A workflow may already have run it and
 supplied `context.json`; then skip the command. To replay a merged PR or run in a detached checkout,
-use the offline mode: `--files <file of changed paths> --author <login> --title <title> --base <ref> --head <ref>`.
+use the offline mode: `--files <file of changed paths> --author <login> --title <title> --base <ref> --head <ref> --head-sha <sha>`.
 `--base` must resolve in the checkout to the PR's merge-base: a bare branch name falls back to `origin/<name>`, but a stale
 local branch of the same name wins, so pass the merge-base SHA when unsure (a wrong base lists hundreds of changed files).
 On a maintenance branch (`v2.11`, `v3.7`) the doc layout can differ from the profile's: treat `doc_targets` as hints only and
@@ -171,11 +171,15 @@ PYTHONPATH="${CLAUDE_SKILL_DIR}" python3 -m scripts.post_review \
   --repo <owner/repo> --pr <pr> --findings merged.json \
   --changed-lines changed-lines.json --template templates/pr-comment.md.tmpl \
   --profile proxy --classify classify.json \
-  --commit "$(gh pr view <pr> --repo <owner/repo> --json headRefOid -q .headRefOid)" \
+  --commit "$(jq -r .head_sha context.json)" \
   [--dry-run | --out comment.md]
 ```
 
-`--commit` is the PR head the review ran on. The comment shows it under the heading as "Reviewed at commit
+`--commit` is the PR head the review ran on: the `head_sha` that Step 1 (`prepare`) recorded in `context.json` when the
+review started. Never look it up again at posting time: if the author pushed in between, the comment would name a commit
+nobody reviewed. `post_review` refuses to post or write a comment without a full 40-character SHA (only `--dry-run`
+goes on without one), because the `traefik/ai` workflow finds a PR it already reviewed by searching comments for
+"Reviewed at commit `"; a comment without that line would be reviewed again. The comment shows it under the heading as "Reviewed at commit
 `abc1234` (view)", with a link to the commit, so a reviewer can tell which version of the PR the findings describe (the
 PR may have moved on since). Pass the SHA you reviewed, not whatever is checked out afterwards.
 
@@ -196,13 +200,14 @@ member leads its group.
 
 Noise control, applied by `post_review.py` after your layers run, so emit findings as usual:
 
-- **Same rule, same file, one finding.** Style and clarity findings that share a file and `rule` are merged into
-  one suggestion that lists every line. The heading counts the merged finding once.
+- **Same rule, same file, one finding.** Style and clarity findings that share a file, a layer and a `rule` are merged
+  into one suggestion that lists every line. The heading counts the merged finding once. A finding about the whole
+  file (`line: 0`) is never merged.
 - **Wording folds.** Beyond three wording-only rows (style, clarity), the rest sit in one collapsed row,
   "N more wording suggestions". Accuracy, missing-docs and link findings are never folded.
 - **Relative links.** The posting workflow replaces a link that is not a full HTTPS URL with "(link unavailable:
-  invalid HTTPS URL)" in prose and block quotes. `post_review.py` rewrites a relative link in prose as text plus
-  a code-formatted path, and puts quotes and prose fixes in code fences, which are not rewritten. Write fixes
+  invalid HTTPS URL)" in prose and block quotes (a relative link, but also `http://`). `post_review.py` rewrites such a
+  link or image in prose as text plus a code-formatted path (links inside inline code are left alone), and puts quotes and prose fixes in code fences, which are not rewritten. Write fixes
   with the real relative link; do not shorten it.
 
 ## Error handling
