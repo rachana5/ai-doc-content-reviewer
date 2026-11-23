@@ -110,16 +110,40 @@ _MD_LINK = re.compile(r"(!?)\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+\"[^\
 _CODE_SPAN = re.compile(r"(`+)(?:(?!\1).)+?\1", re.DOTALL)
 
 
+# The posting workflow (gh-aw's report renderer) keeps a link only when its target is `https://host/...`
+# and the host is on the workflow's `allowed-domains`; anything else (a relative path, `http://`, an
+# in-page `#anchor`, `mailto:`, an HTTPS link to another site, any image outside the list) becomes the
+# label plus " (link unavailable: invalid HTTPS URL)". The profile's `post_link_domains` mirrors that
+# list; a `*.` entry matches subdomains, a bare entry only the host itself (stricter than the workflow
+# may be, which only costs a rewritten link).
+DEFAULT_LINK_DOMAINS = ("github.com", "traefik.io", "*.traefik.io")
+LINK_DOMAINS: tuple[str, ...] = DEFAULT_LINK_DOMAINS
+
+
+def set_link_domains(domains) -> None:
+    global LINK_DOMAINS
+    LINK_DOMAINS = tuple(domains) if domains else DEFAULT_LINK_DOMAINS
+
+
 def _is_safe_target(target: str) -> bool:
-    """Only a full HTTPS URL, an in-page anchor or a mailto survives the posting workflow."""
-    return target.startswith(("https://", "#", "mailto:"))
+    m = re.match(r"https://([A-Za-z0-9.-]+)(?::\d+)?/", target)
+    if not m:
+        return False
+    host = m.group(1).lower()
+    for d in LINK_DOMAINS:
+        d = d.lower()
+        if d.startswith("*.") and host.endswith(d[1:]) and host != d[2:]:
+            return True
+        if host == d:
+            return True
+    return False
 
 
 def neutralize_links(text: str) -> str:
     """Rewrite a markdown link or image whose target is not a full HTTPS URL, `[text](../a.md#x)`,
     as `text (`../a.md#x`)`. The posting workflow replaces such a link (a relative path, but also
-    `http://`) with "(link unavailable: invalid HTTPS URL)" in prose and block quotes, so it would
-    reach the contributor corrupted. HTTPS links, in-page anchors and mailto links are left alone.
+    `http://`, an in-page anchor, another site) with "(link unavailable: invalid HTTPS URL)", so it
+    would reach the contributor corrupted. Only an HTTPS link to an allowed domain is left alone.
     Text inside inline code is never touched (it is shown verbatim). Fenced code is not rewritten
     by the workflow, so callers keep verbatim text in fences instead."""
     def fix(m: re.Match) -> str:
@@ -193,8 +217,13 @@ def merge_same_rule(findings: list[dict]) -> list[dict]:
         key = (f["file"], f["layer"], f["rule"])
         if key in lead:
             lead[key].setdefault("occurrences", []).append(
-                {"line": f["line"], "quote": f["quote"], "suggested_fix": f["suggested_fix"]})
+                {"line": f["line"], "quote": f["quote"], "suggested_fix": f["suggested_fix"],
+                 "reasoning": f.get("reasoning", "")})
             lead[key]["confidence"] = max(lead[key]["confidence"], f["confidence"])
+            # Impact escalates like confidence: the merged row is as impactful as its most impactful part.
+            if (_finding.IMPACT_RANK[_finding.effective_impact(f)]
+                    < _finding.IMPACT_RANK[_finding.effective_impact(lead[key])]):
+                lead[key]["impact"] = _finding.effective_impact(f)
         else:
             f = {**f}
             lead[key] = f
@@ -235,7 +264,17 @@ def render_finding(f: dict, fix_cap: int | None = None) -> str:
     if fix_cap is not None and len(fix) > fix_cap:
         fix = fix[:fix_cap].rstrip() + "\n\n_(shortened to fit the comment size limit)_"
     parts = [f"<details>\n<summary>{summary}</summary>\n"]
-    parts.append(f"**What's wrong:** {neutralize_links(' '.join(str(f.get('reasoning', '')).split()))}\n")
+    def why(text: str) -> str:
+        return neutralize_links(" ".join(str(text or "").split()))
+
+    reasons = [why(f.get("reasoning", "")), *[why(o.get("reasoning", f.get("reasoning", ""))) for o in more]]
+    if more and len(set(reasons)) > 1:
+        # The places break the rule for different reasons (two banned words, say): each keeps its own.
+        parts.append("**What's wrong:**\n")
+        parts.append("\n".join(f"- Line {n}: {r}" for n, r in
+                               zip([f["line"], *[o["line"] for o in more]], reasons)) + "\n")
+    else:
+        parts.append(f"**What's wrong:** {reasons[0]}\n")
     if more:
         parts.append("**Suggested fix, at each place:**\n")
         for occ in [{"line": f["line"], "quote": quote, "suggested_fix": fix}, *more]:
@@ -461,8 +500,9 @@ def main(argv: list[str] | None = None) -> int:
     changed_ranges = json.loads(Path(args.changed_lines).read_text())
     if args.profile:
         from scripts import profile as profile_mod
-        findings = drop_outside_diff(
-            findings, changed_ranges, profile_mod.load(args.profile).get("drop_outside_diff_layers", []))
+        prof = profile_mod.load(args.profile)
+        set_link_domains(prof.get("post_link_domains"))
+        findings = drop_outside_diff(findings, changed_ranges, prof.get("drop_outside_diff_layers", []))
     findings = merge_same_rule(all_as_suggestions(findings))
 
     # Silence rules: nothing to review, or a code-only PR with no docs gap found.

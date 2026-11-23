@@ -206,8 +206,9 @@ Noise control, applied by `post_review.py` after your layers run, so emit findin
   file (`line: 0`) is never merged.
 - **Wording folds.** Beyond three wording-only rows (style, clarity), the rest sit in one collapsed row,
   "N more wording suggestions". Accuracy, missing-docs and link findings are never folded.
-- **Relative links.** The posting workflow replaces a link that is not a full HTTPS URL with "(link unavailable:
-  invalid HTTPS URL)" in prose and block quotes (a relative link, but also `http://`). `post_review.py` rewrites such a
+- **Links.** The posting workflow keeps a link only when it is `https://` on one of its allowed domains (the
+  profile's `post_link_domains`: github.com and traefik.io); every other link, image or anchor becomes its label plus
+  "(link unavailable: invalid HTTPS URL)" (a relative link, `http://`, `#anchor`, `mailto:`, another site). `post_review.py` rewrites such a
   link or image in prose as text plus a code-formatted path (links inside inline code are left alone), and puts quotes and prose fixes in code fences, which are not rewritten. Write fixes
   with the real relative link; do not shorten it.
 

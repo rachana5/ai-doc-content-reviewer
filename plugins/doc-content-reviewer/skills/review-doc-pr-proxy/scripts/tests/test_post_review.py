@@ -426,9 +426,11 @@ def test_the_shipped_profile_drops_style_and_clarity_outside_the_diff_too():
 
 # --- noise, links and commit line (traefik/traefik review audit, 2026-11-21) ---
 
-def _g(layer, line, rule=None, file="docs/a.md", **kw):
+def _g(layer, line, rule=None, file="docs/a.md", impact=None, **kw):
     f = _f(layer, "suggestion", line, **kw)
     f["file"] = file
+    if impact:
+        f["impact"] = impact
     if rule:
         f["rule"] = rule
     return f
@@ -438,12 +440,12 @@ def _style(line, rule="Style guide: Clarity Rules", **kw):
     return _g("style", line, rule=rule, **kw)
 
 
-def test_relative_links_in_prose_are_neutralized_but_urls_and_anchors_are_kept():
+def test_relative_links_in_prose_are_neutralized_but_allowed_https_links_are_kept():
     from scripts import post_review as pr
-    text = "See [tracing](./tracing.md#opt-x), [site](https://example.com/a) and [here](#top)."
+    text = "See [tracing](./tracing.md#opt-x) and [site](https://traefik.io/a)."
     out = pr.neutralize_links(text)
     assert "tracing (`./tracing.md#opt-x`)" in out
-    assert "[site](https://example.com/a)" in out and "[here](#top)" in out
+    assert "[site](https://traefik.io/a)" in out
     assert "](./tracing.md" not in out
 
 
@@ -644,11 +646,33 @@ def test_style_and_clarity_with_the_same_rule_label_stay_apart():
     assert len(pr.merge_same_rule(fs)) == 2
 
 
-def test_http_links_are_neutralized_too_but_https_anchor_and_mailto_stay():
+def test_only_https_on_an_allowed_domain_survives_the_workflow_filter():
+    """gh-aw's report renderer keeps a link only for https://<allowed host>/...; everything else
+    becomes the label plus "(link unavailable: invalid HTTPS URL)"."""
     from scripts import post_review as pr
-    out = pr.neutralize_links("[a](http://x.io/p) [b](https://x.io/p) [c](#top) [d](mailto:a@b.io)")
-    assert "a (`http://x.io/p`)" in out
-    assert "[b](https://x.io/p)" in out and "[c](#top)" in out and "[d](mailto:a@b.io)" in out
+    keep = ["[a](https://github.com/o/r/commit/abc)", "[b](https://traefik.io/x)", "[c](https://doc.traefik.io/traefik/)"]
+    for link in keep:
+        assert pr.neutralize_links(link) == link
+    for link, text in [("[a](http://traefik.io/x)", "a (`http://traefik.io/x`)"),
+                       ("[a](#top)", "a (`#top`)"),
+                       ("[a](mailto:x@y.io)", "a (`mailto:x@y.io`)"),
+                       ("[a](https://kubernetes.io/docs/)", "a (`https://kubernetes.io/docs/`)"),
+                       ("[a](https://evil-traefik.io/x)", "a (`https://evil-traefik.io/x`)"),
+                       ("[a](https://traefik.io.evil.com/x)", "a (`https://traefik.io.evil.com/x`)")]:
+        assert pr.neutralize_links(link) == text
+
+
+def test_the_profile_supplies_the_allowed_link_domains(tmp_path):
+    from scripts import post_review as pr
+    try:
+        pr.set_link_domains(["example.org"])
+        assert pr.neutralize_links("[a](https://example.org/x)") == "[a](https://example.org/x)"
+        assert pr.neutralize_links("[a](https://traefik.io/x)") == "a (`https://traefik.io/x`)"
+    finally:
+        pr.set_link_domains(None)
+    assert pr.neutralize_links("[a](https://traefik.io/x)") == "[a](https://traefik.io/x)"
+    from scripts import profile as profile_mod
+    assert "traefik.io" in profile_mod.load("proxy")["post_link_domains"]
 
 
 def test_images_and_links_with_parentheses_are_neutralized_whole():
@@ -681,7 +705,7 @@ def test_code_next_to_a_link_and_a_link_inside_code_are_both_handled():
     from scripts import post_review as pr
     out = pr.neutralize_links("Use `[x](../a.md)` or [`y`](../b.md), then `z`.")
     assert "`[x](../a.md)`" in out and "`y` (`../b.md`)" in out and out.endswith("then `z`.")
-    assert pr.neutralize_links("[`y`](https://e.io/p)") == "[`y`](https://e.io/p)"
+    assert pr.neutralize_links("[`y`](https://traefik.io/p)") == "[`y`](https://traefik.io/p)"
 
 
 def test_a_sha_with_a_trailing_newline_is_refused():
@@ -707,3 +731,31 @@ def test_a_context_without_head_sha_fails_with_a_message_that_says_how_to_fix_it
     assert _run_main(tmp_path, ["--context", str(ctx), "--out", str(out)]) == 2
     err = capsys.readouterr().err
     assert not out.exists() and "run Step 1 again" in err and "--commit" in err
+
+
+# --- third review round on PR 7: merged reasoning and impact ---
+
+def test_each_merged_place_keeps_its_own_reasoning_when_they_differ():
+    from scripts import post_review as pr
+    fs = [_style(3, rule="Style guide: Words and Phrases to Avoid", quote="simply do it", fix="do it",
+                 reasoning="`simply` is filler."),
+          _style(9, rule="Style guide: Words and Phrases to Avoid", quote="utilize it", fix="use it",
+                 reasoning="`utilize` is a banned word; write `use`.")]
+    out = pr.render_finding(pr.merge_same_rule(fs)[0])
+    assert "- Line 3: `simply` is filler." in out
+    assert "- Line 9: `utilize` is a banned word; write `use`." in out
+
+
+def test_identical_reasoning_is_shown_once_not_per_line():
+    from scripts import post_review as pr
+    fs = [_style(1, reasoning="Same reason."), _style(2, reasoning="Same reason.")]
+    out = pr.render_finding(pr.merge_same_rule(fs)[0])
+    assert out.count("Same reason.") == 1 and "**What's wrong:** Same reason." in out
+
+
+def test_merged_impact_is_the_most_impactful_of_the_parts():
+    from scripts import post_review as pr
+    fs = [_style(1, impact="low"), _style(2, impact="high")]
+    assert pr.merge_same_rule(fs)[0]["impact"] == "high"
+    fs = [_style(1, impact="high"), _style(2, impact="low")]
+    assert pr.merge_same_rule(fs)[0]["impact"] == "high"
