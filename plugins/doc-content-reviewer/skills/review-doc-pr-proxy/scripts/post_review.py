@@ -106,7 +106,8 @@ def _is_simple_edit(f: dict) -> bool:
 
 # A markdown link or image: `[text](target)` / `![alt](target)`. The target may hold one level of
 # balanced parentheses (`page_(draft).md`).
-_MD_LINK = re.compile(r"(!?)\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+\"[^\"]*\")?\)")
+_MD_LINK = re.compile(
+    r"(!?)\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(\s*(?:<([^<>]+)>|((?:[^()\s]|\([^()\s]*\))+))(?:\s+\"[^\"]*\")?\s*\)")
 _CODE_SPAN = re.compile(r"(`+)(?:(?!\1).)+?\1", re.DOTALL)
 
 
@@ -147,7 +148,7 @@ def neutralize_links(text: str) -> str:
     Text inside inline code is never touched (it is shown verbatim). Fenced code is not rewritten
     by the workflow, so callers keep verbatim text in fences instead."""
     def fix(m: re.Match) -> str:
-        bang, label, target = m.group(1), m.group(2), m.group(3)
+        bang, label, target = m.group(1), m.group(2), (m.group(3) or m.group(4)).strip()
         if _is_safe_target(target):
             return m.group(0)
         label = label or ("image" if bang else target)
@@ -198,6 +199,12 @@ def commit_line(commit: str | None, repo: str | None = None) -> str:
 STYLE_LAYERS = ("style", "clarity")
 
 
+def _rule_key(rule: str) -> str:
+    """The rule label compared loosely: case, spacing and trailing punctuation do not make a
+    different rule ("Style guide: Clarity Rules" and "Style guide: Clarity rules." are one)."""
+    return re.sub(r"[\s.:;,]+$", "", re.sub(r"\s+", " ", rule.strip().casefold()))
+
+
 def merge_same_rule(findings: list[dict]) -> list[dict]:
     """One finding per (file, layer, rule) for style and clarity: a style and a clarity finding with
     the same rule label stay apart. The same wording rule broken on
@@ -214,7 +221,7 @@ def merge_same_rule(findings: list[dict]) -> list[dict]:
             # merged row with a meaningless location, so it stays on its own.
             out.append(f)
             continue
-        key = (f["file"], f["layer"], f["rule"])
+        key = (f["file"], f["layer"], _rule_key(f["rule"]))
         if key in lead:
             lead[key].setdefault("occurrences", []).append(
                 {"line": f["line"], "quote": f["quote"], "suggested_fix": f["suggested_fix"],
@@ -511,6 +518,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.commit and args.context:
         args.commit = json.loads(Path(args.context).read_text()).get("head_sha") or None
+    # A duplicate invocation (a CI retry) is skipped first, so it exits 0 whether or not a commit
+    # was passed: the marker check needs no SHA.
+    if not (args.out or args.dry_run) and has_existing_comment(args.repo, args.pr, args.marker):
+        print(f"[post_review] a comment with marker {args.marker!r} already exists on "
+              f"{args.repo}#{args.pr} — skipping (this run is a duplicate invocation, not an update).")
+        return 0
     if not is_full_sha(args.commit):
         msg = (f"[post_review] no full 40-character head SHA for the review (got {args.commit!r}). Pass "
                f"--commit <sha>, or --context context.json from a `prepare` run that records `head_sha`: an "
@@ -531,11 +544,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         print(body)
-        return 0
-
-    if has_existing_comment(args.repo, args.pr, args.marker):
-        print(f"[post_review] a comment with marker {args.marker!r} already exists on "
-              f"{args.repo}#{args.pr} — skipping (this run is a duplicate invocation, not an update).")
         return 0
 
     post_comment(args.repo, args.pr, body)

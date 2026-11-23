@@ -759,3 +759,38 @@ def test_merged_impact_is_the_most_impactful_of_the_parts():
     assert pr.merge_same_rule(fs)[0]["impact"] == "high"
     fs = [_style(1, impact="high"), _style(2, impact="low")]
     assert pr.merge_same_rule(fs)[0]["impact"] == "high"
+
+
+# --- fourth review round on PR 7 ---
+
+def test_a_duplicate_run_without_a_commit_still_skips_with_exit_0(monkeypatch, tmp_path, capsys):
+    from scripts import post_review as pr
+    monkeypatch.setattr(pr, "has_existing_comment", lambda *a, **k: True)
+    monkeypatch.setattr(pr, "post_comment", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not post")))
+    assert _run_main(tmp_path, []) == 0
+    assert "skipping" in capsys.readouterr().out
+
+
+def test_out_and_dry_run_never_check_for_an_existing_comment(monkeypatch, tmp_path):
+    from scripts import post_review as pr
+    monkeypatch.setattr(pr, "has_existing_comment", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no marker check")))
+    assert _run_main(tmp_path, ["--commit", _SHA, "--out", str(tmp_path / "o.md")]) == 0
+    assert _run_main(tmp_path, ["--dry-run"]) == 0
+
+
+def test_padded_angle_bracket_and_nested_bracket_links_are_rewritten():
+    from scripts import post_review as pr
+    assert pr.neutralize_links("[a](  ../x.md )") == "a (`../x.md`)"
+    assert pr.neutralize_links("[a](<../x y.md>)") == "a (`../x y.md`)"
+    assert pr.neutralize_links("[a [b] c](../x.md)") == "a [b] c (`../x.md`)"
+    assert pr.neutralize_links("[a](https://traefik.io/x)") == "[a](https://traefik.io/x)"
+    assert pr.neutralize_links("[a](  https://traefik.io/x )").startswith("[a](")
+
+
+def test_rules_that_differ_only_in_case_spacing_or_punctuation_merge():
+    from scripts import post_review as pr
+    fs = [_style(1, rule="Style guide: Clarity Rules"), _style(2, rule="Style guide:  Clarity rules."),
+          _style(3, rule="Style guide: Voice")]
+    merged = pr.merge_same_rule(fs)
+    assert len(merged) == 2
+    assert len([m for m in merged if m["line"] == 1][0]["occurrences"]) == 1

@@ -40,9 +40,16 @@ The skill ends by rendering a comment. Delivery is a flag on `post_review`:
 
 | Flag | Result |
 |---|---|
-| none | Posts one PR comment with `gh pr comment`; skips if the marker `<!-- review-doc-pr:v1 -->` is already there |
-| `--dry-run` | Prints the comment, posts nothing |
-| `--out comment.md` | Writes the file, posts nothing. Use this when the workflow posts the comment itself |
+| none | Posts one PR comment with `gh pr comment`; skips (exit 0) if the marker `<!-- review-doc-pr:v1 -->` is already there. Needs the commit, see below |
+| `--dry-run` | Prints the comment, posts nothing. Works without the commit (warns on stderr) |
+| `--out comment.md` | Writes the file, posts nothing. Use this when the workflow posts the comment itself. Needs the commit, see below |
+
+**The commit is required** for everything except `--dry-run`. The comment shows "Reviewed at commit `abc1234`" under
+its heading, and a workflow can find an already-reviewed PR by searching comments for "Reviewed at commit `". Pass
+either `--context context.json` (the file `prepare` wrote; it records `head_sha` when the review starts) or
+`--commit <40-character sha>`. Without one, `post_review` exits 2 and writes or posts nothing. A `context.json` from an
+older `prepare` has no `head_sha`: run `prepare` again, or pass `--commit` with the SHA the review ran on (not one
+looked up later, since the head may have moved). A duplicate run is skipped first, so it still exits 0.
 
 `AGENTS.md` in traefik/traefik says agents must not post comments for contributors. Use `--out` and a
 maintainer-approved posting step, or agree the posting identity with the maintainers first.
