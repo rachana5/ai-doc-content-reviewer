@@ -55,3 +55,17 @@ def test_resolve_base_falls_back_to_origin_and_fails_clearly(tmp_path):
     import pytest
     with pytest.raises(_git.GitError, match="does not resolve"):
         prepare.resolve_base(clone, "nope")
+
+
+def test_context_records_the_head_sha_the_review_started_on():
+    ctx, _ = prepare.build_context(
+        prof=profile_mod.load("proxy"), pr="1", repo="o/r", files=["docs/content/a.md"], author="alice", title="Docs",
+        base="main", head="feat", head_sha="a" * 40)
+    assert ctx["head_sha"] == "a" * 40
+
+
+def test_context_head_sha_defaults_to_empty():
+    ctx, _ = prepare.build_context(
+        prof=profile_mod.load("proxy"), pr="1", repo="o/r", files=["docs/content/a.md"], author="alice", title="Docs",
+        base="main", head="feat")
+    assert ctx["head_sha"] == ""

@@ -40,7 +40,7 @@ def resolve_base(repo_root: Path, base: str) -> str:
 
 def build_context(
     *, prof: dict, pr: str, repo: str | None, files: list[str], author: str, title: str,
-    base: str, head: str,
+    base: str, head: str, head_sha: str = "",
 ) -> tuple[dict, dict]:
     """(context, classify). Pure: no I/O."""
     classify = missing_docs.classify(files, prof)
@@ -49,7 +49,7 @@ def build_context(
         classify = {**classify, "action": "silent"}
     context = {
         "profile": prof["name"], "pr": pr, "repo": repo,
-        "base": base, "head": head, "author": author, "title": title,
+        "base": base, "head": head, "head_sha": head_sha, "author": author, "title": title,
         "skip": skip, "skip_reason": "dependency bot, or a dependency-bump, merge-forward or release-prep title" if skip else None,
         "action": classify["action"], "docs_changed": classify["docs_changed"],
         "user_facing_code": classify["user_facing_code"],
@@ -70,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--title", help="offline: PR title")
     ap.add_argument("--base", help="offline: the PR's target branch (a bare name falls back to origin/<name>; a stale local branch of that name wins, so pass the merge-base SHA when unsure)")
     ap.add_argument("--head", help="offline: the PR's own branch")
+    ap.add_argument("--head-sha", default="", help="offline: the PR head commit being reviewed (full SHA); "
+                    "recorded in context.json for post_review --commit")
     args = ap.parse_args(argv)
 
     prof = profile_mod.load(args.profile)
@@ -78,12 +80,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.files:
             files = [l.strip() for l in Path(args.files).read_text().splitlines() if l.strip()]
             author, title = args.author or "", args.title or ""
-            base, head = args.base, args.head
+            base, head, head_sha = args.base, args.head, args.head_sha
         else:
             info = json.loads(_gh.run(
-                ["pr", "view", args.pr, *repo_args, "--json", "author,title,baseRefName,headRefName"]))
+                ["pr", "view", args.pr, *repo_args, "--json", "author,title,baseRefName,headRefName,headRefOid"]))
             author, title = info["author"]["login"], info["title"]
-            base, head = info["baseRefName"], info["headRefName"]
+            base, head, head_sha = info["baseRefName"], info["headRefName"], info.get("headRefOid", "")
             files = [l for l in _gh.run(["pr", "diff", args.pr, *repo_args, "--name-only"]).splitlines() if l]
         ranges = {}
         if base and head:
@@ -95,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
 
     context, classify = build_context(
         prof=prof, pr=args.pr, repo=args.repo, files=files, author=author, title=title,
-        base=base or "", head=head or "")
+        base=base or "", head=head or "", head_sha=head_sha or "")
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "context.json").write_text(json.dumps(context, indent=2))

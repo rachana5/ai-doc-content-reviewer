@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 
+from pathlib import Path
+
 from scripts import post_review
+
+_TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "pr-comment.md.tmpl"
 
 
 def _finding(file="docs/foo.md", line=10, severity="blocking", **overrides):
@@ -126,7 +130,7 @@ def test_main_skips_posting_when_marker_already_present(monkeypatch, tmp_path, c
         "--repo", "owner/repo", "--pr", "42",
         "--findings", str(findings_path),
         "--changed-lines", str(changed_lines_path),
-        "--template", str(template_path),
+        "--template", str(template_path), "--commit", "a" * 40,
     ])
     assert exit_code == 0
     assert posted == []
@@ -150,7 +154,7 @@ def test_main_posts_when_no_existing_comment(monkeypatch, tmp_path):
         "--repo", "owner/repo", "--pr", "42",
         "--findings", str(findings_path),
         "--changed-lines", str(changed_lines_path),
-        "--template", str(template_path),
+        "--template", str(template_path), "--commit", "a" * 40,
     ])
     assert exit_code == 0
     assert len(posted) == 1
@@ -321,7 +325,7 @@ def test_eight_or_more_suggestions_group_by_shared_key():
     assert sorted(len(u) for u in units) == [1, 1, 1, 1, 1, 3]
     out = pr.render_findings_block(fs)
     assert "3 related suggestions" in out and "<code>maxBurst</code>" in out
-    assert out.count("<details>") == 1 + 8   # one group plus each finding stays its own row
+    assert out.count("<details>") == 1 + 8 + 1   # one group, each finding its own row, plus the wording fold
 
 
 def test_link_findings_group_by_default_and_a_lone_key_stays_single():
@@ -395,7 +399,7 @@ def test_out_writes_the_comment_and_never_posts(monkeypatch, tmp_path, capsys):
     tmpl = tmp_path / "t.tmpl"; tmpl.write_text("## {{blocking_count}} blocking, {{suggestion_count}} suggestions\n\n{{findings_block}}\n")
     out = tmp_path / "comment.md"
     rc = pr.main(["--repo", "o/r", "--pr", "1", "--findings", str(f), "--changed-lines", str(c),
-                  "--template", str(tmpl), "--out", str(out)])
+                  "--template", str(tmpl), "--commit", "a" * 40, "--out", str(out)])
     assert rc == 0 and called == [] and "1 suggestion" in out.read_text()
 
 
@@ -418,3 +422,375 @@ def test_drop_outside_diff_covers_style_and_clarity_and_keeps_whole_file_finding
 def test_the_shipped_profile_drops_style_and_clarity_outside_the_diff_too():
     from scripts import profile
     assert {"reference", "style", "clarity"} <= set(profile.load("proxy")["drop_outside_diff_layers"])
+
+
+# --- noise, links and commit line (traefik/traefik review audit, 2026-11-21) ---
+
+def _g(layer, line, rule=None, file="docs/a.md", impact=None, **kw):
+    f = _f(layer, "suggestion", line, **kw)
+    f["file"] = file
+    if impact:
+        f["impact"] = impact
+    if rule:
+        f["rule"] = rule
+    return f
+
+
+def _style(line, rule="Style guide: Clarity Rules", **kw):
+    return _g("style", line, rule=rule, **kw)
+
+
+def test_relative_links_in_prose_are_neutralized_but_allowed_https_links_are_kept():
+    from scripts import post_review as pr
+    text = "See [tracing](./tracing.md#opt-x) and [site](https://traefik.io/a)."
+    out = pr.neutralize_links(text)
+    assert "tracing (`./tracing.md#opt-x`)" in out
+    assert "[site](https://traefik.io/a)" in out
+    assert "](./tracing.md" not in out
+
+
+def test_reasoning_and_completeness_code_change_are_neutralized():
+    from scripts import post_review as pr
+    f = _f("accuracy", "suggestion", 3, reasoning="Wrong, see [x](../x.md).")
+    assert "](../x.md)" not in pr.render_finding(f)
+    c = _f("completeness", "suggestion", 1, quote="a: see [x](../x.md)", fix="Add it.")
+    assert "](../x.md)" not in pr.render_finding(c)
+
+
+def test_block_quote_and_prose_fix_are_fenced_so_links_survive_verbatim():
+    from scripts import post_review as pr
+    q = "Text with [link](../a.md) over\nthree\nlines"
+    f = _f("accuracy", "suggestion", 3, quote=q, fix="Line one\nSee [link](../a.md)")
+    out = pr.render_finding(f)
+    assert "```\n" + q + "\n```" in out
+    assert "```markdown\nLine one\nSee [link](../a.md)\n```" in out
+    assert "> Text" not in out
+
+
+def test_fence_grows_to_contain_a_fence_inside_the_fix():
+    from scripts import post_review as pr
+    out = pr.fenced("Add:\n```yaml\na: 1\n```", "markdown")
+    assert out.startswith("````markdown\n") and out.endswith("\n````")
+
+
+def test_commit_line_links_the_short_sha_and_is_empty_without_a_commit():
+    from scripts import post_review as pr
+    sha = "e75dd61a661f8745bde7e92618e317cc1a1e21f0"
+    assert pr.commit_line(sha, "traefik/traefik") == (
+        f"Reviewed at commit `e75dd61` ([view](https://github.com/traefik/traefik/commit/{sha})).")
+    # traefik/ai's once-per-PR gate searches for this exact prefix
+    assert pr.commit_line(sha, "traefik/traefik").startswith("Reviewed at commit `")
+    assert pr.commit_line(sha) == "Reviewed at commit `e75dd61`."
+    assert pr.commit_line(None, "traefik/traefik") == ""
+
+
+def test_comment_shows_the_commit_under_the_heading_and_omits_the_slot_without_one():
+    from scripts import post_review as pr
+    tmpl = _TEMPLATE.read_text()
+    f = [_f("accuracy", "suggestion", 3)]
+    with_commit = pr.render_comment(f, tmpl, reviewed="Reviewed at commit `abc1234`.")
+    lines = with_commit.splitlines()
+    assert lines[0].startswith("## Docs review") and lines[2] == "Reviewed at commit `abc1234`."
+    assert "{{" not in with_commit
+    without = pr.render_comment(f, tmpl)
+    assert "{{" not in without and "Reviewed at" not in without and "\n\n\n\n" not in without
+    empty = pr.render_comment([], tmpl, reviewed="Reviewed at commit `abc1234`.")
+    assert "no issues found" in empty and "Reviewed at commit `abc1234`." in empty and "{{" not in empty
+    assert "{{" not in pr.render_comment([], tmpl)
+
+
+def test_same_rule_in_one_file_is_one_finding_with_every_occurrence():
+    from scripts import post_review as pr
+    fs = [_style(369, quote="the EntryPoint", fix="the entry point"),
+          _style(398, quote="EntryPoint option", fix="entry point option"),
+          _style(399, quote="(EntryPoint)", fix="(entry point)")]
+    merged = pr.merge_same_rule(fs)
+    assert len(merged) == 1 and len(merged[0]["occurrences"]) == 2
+    out = pr.render_finding(merged[0])
+    assert "a.md:369" in out and "(+2 more)" in out
+    for line in ("369", "398", "399"):
+        assert f"Line {line}:" in out
+    assert pr.render_comment(merged, _TEMPLATE.read_text()).startswith("## Docs review: 1 suggestion\n")
+
+
+def test_merge_keeps_different_rules_files_and_non_style_layers_apart():
+    from scripts import post_review as pr
+    fs = [_style(1), _style(2, rule="Style guide: Voice"),
+          _g("style", 3, rule="Style guide: Clarity Rules", file="docs/b.md"),
+          _g("accuracy", 4, rule="Accuracy: x"),
+          _g("accuracy", 5, rule="Accuracy: x")]
+    assert len(pr.merge_same_rule(fs)) == 5
+
+
+def test_merge_does_not_mutate_its_input():
+    from scripts import post_review as pr
+    fs = [_style(1), _style(2)]
+    pr.merge_same_rule(fs)
+    assert "occurrences" not in fs[0]
+
+
+def test_wording_beyond_three_units_folds_into_one_row_and_nothing_is_dropped():
+    from scripts import post_review as pr
+    fs = [_style(i, rule=f"Style guide: Rule {i}") for i in range(1, 7)]
+    out = pr.render_findings_block(fs)
+    assert "3 more wording suggestions" in out
+    for i in range(1, 7):
+        assert f"Rule {i}</summary>" in out
+    assert pr.render_findings_block(fs[:3]).count("more wording") == 0
+
+
+def test_a_fold_never_swallows_accuracy_or_missing_docs():
+    from scripts import post_review as pr
+    fs = [_style(i, rule=f"Style guide: Rule {i}") for i in range(1, 6)]
+    fs.append(_g("accuracy", 50, rule="Accuracy: default"))
+    out = pr.render_findings_block(fs)
+    head = out.split("more wording")[0]
+    assert "Accuracy: default" in head
+
+
+def test_completeness_without_a_rule_is_labelled_completeness_not_missing_docs():
+    from scripts import post_review as pr
+    f = _f("completeness", "suggestion", 1, quote="x", fix="y")
+    f.pop("rule", None)
+    assert "Completeness" in pr.render_finding(f).split("</summary>")[0]
+
+
+# --- review round on PR 7: commit handling, merged-row rendering, link edge cases ---
+
+_SHA = "e75dd61a661f8745bde7e92618e317cc1a1e21f0"
+
+
+def _run_main(tmp_path, extra, findings=None):
+    from scripts import post_review as pr
+    (tmp_path / "f.json").write_text(json.dumps(findings if findings is not None else [_g("accuracy", 3)]))
+    (tmp_path / "c.json").write_text("{}")
+    return pr.main(["--repo", "o/r", "--pr", "1", "--findings", str(tmp_path / "f.json"),
+                    "--changed-lines", str(tmp_path / "c.json"), "--template", str(_TEMPLATE), *extra])
+
+
+def test_out_without_a_commit_writes_nothing_and_fails(tmp_path, capsys):
+    out = tmp_path / "comment.md"
+    rc = _run_main(tmp_path, ["--out", str(out)])
+    assert rc == 2 and not out.exists() and "40-character" in capsys.readouterr().err
+
+
+def test_posting_without_a_commit_posts_nothing(monkeypatch, tmp_path):
+    from scripts import post_review as pr
+    monkeypatch.setattr(pr, "has_existing_comment", lambda *a, **k: False)
+    monkeypatch.setattr(pr, "post_comment", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not post")))
+    assert _run_main(tmp_path, []) == 2
+
+
+def test_a_short_or_malformed_commit_is_refused(tmp_path):
+    for bad in ("e75dd61", "HEAD", "", "g" * 40, _SHA + "0"):
+        assert _run_main(tmp_path, ["--commit", bad, "--out", str(tmp_path / "o.md")]) == 2
+
+
+def test_dry_run_without_a_commit_warns_and_continues(tmp_path, capsys):
+    rc = _run_main(tmp_path, ["--dry-run"])
+    cap = capsys.readouterr()
+    assert rc == 0 and "## Docs review" in cap.out and "Reviewed at commit" not in cap.out
+    assert "Dry run" in cap.err
+
+
+def test_a_valid_commit_reaches_the_comment_with_the_gate_prefix(tmp_path):
+    out = tmp_path / "o.md"
+    assert _run_main(tmp_path, ["--commit", _SHA, "--out", str(out)]) == 0
+    text = out.read_text()
+    assert "Reviewed at commit `e75dd61` ([view](https://github.com/o/r/commit/" + _SHA + "))." in text
+    assert "Reviewed at commit `" in text          # what traefik/ai's once-per-PR gate searches for
+
+
+def test_the_no_findings_comment_also_carries_the_commit(tmp_path):
+    out = tmp_path / "o.md"
+    assert _run_main(tmp_path, ["--commit", _SHA, "--out", str(out)], findings=[]) == 0
+    assert "no issues found" in out.read_text() and "Reviewed at commit `" in out.read_text()
+
+
+def test_extra_occurrences_follow_the_same_rendering_rules_as_the_lead():
+    from scripts import post_review as pr
+    fs = [_style(1, quote="a", fix="b"),
+          _style(2, quote="line one\nline two", fix="(needs a human to decide)"),
+          _style(3, quote="old [x](../x.md)", fix="new [x](../x.md)")]
+    out = pr.render_finding(pr.merge_same_rule(fs)[0])
+    assert "```diff\n- a\n+ b\n```" in out
+    # a multi-line quote with a no-fix marker is not shown as replacement text
+    assert "```diff\n- line one" not in out
+    assert "```\nline one\nline two\n```" in out and "```markdown\n(needs a human to decide)\n```" in out
+    assert "```diff\n- old [x](../x.md)\n+ new [x](../x.md)\n```" in out
+
+
+def test_the_size_cap_shortens_merged_occurrences_too():
+    from scripts import post_review as pr
+    long_fix = "word " * 300
+    fs = [_style(1, quote="a", fix="b"), _style(2, quote="a" * 5, fix=long_fix.strip()[:390])]
+    f = pr.merge_same_rule(fs)[0]
+    f["occurrences"][0]["suggested_fix"] = long_fix.strip()          # over 500 characters, so no simple edit
+    out = pr.render_finding(f, fix_cap=500)
+    assert "shortened to fit the comment size limit" in out and long_fix.strip() not in out
+
+
+def test_a_whole_file_finding_is_not_merged_into_a_lined_one():
+    from scripts import post_review as pr
+    fs = [_style(0, quote="whole file", fix="(needs a human to decide)"), _style(5), _style(9)]
+    merged = pr.merge_same_rule(fs)
+    assert len(merged) == 2
+    whole = [m for m in merged if m["line"] == 0][0]
+    assert "occurrences" not in whole
+    assert [m for m in merged if m["line"] == 5][0]["occurrences"][0]["line"] == 9
+
+
+def test_style_and_clarity_with_the_same_rule_label_stay_apart():
+    from scripts import post_review as pr
+    fs = [_g("style", 1, rule="Same label"), _g("clarity", 2, rule="Same label")]
+    assert len(pr.merge_same_rule(fs)) == 2
+
+
+def test_only_https_on_an_allowed_domain_survives_the_workflow_filter():
+    """gh-aw's report renderer keeps a link only for https://<allowed host>/...; everything else
+    becomes the label plus "(link unavailable: invalid HTTPS URL)"."""
+    from scripts import post_review as pr
+    keep = ["[a](https://github.com/o/r/commit/abc)", "[b](https://traefik.io/x)", "[c](https://doc.traefik.io/traefik/)"]
+    for link in keep:
+        assert pr.neutralize_links(link) == link
+    for link, text in [("[a](http://traefik.io/x)", "a (`http://traefik.io/x`)"),
+                       ("[a](#top)", "a (`#top`)"),
+                       ("[a](mailto:x@y.io)", "a (`mailto:x@y.io`)"),
+                       ("[a](https://kubernetes.io/docs/)", "a (`https://kubernetes.io/docs/`)"),
+                       ("[a](https://evil-traefik.io/x)", "a (`https://evil-traefik.io/x`)"),
+                       ("[a](https://traefik.io.evil.com/x)", "a (`https://traefik.io.evil.com/x`)")]:
+        assert pr.neutralize_links(link) == text
+
+
+def test_the_profile_supplies_the_allowed_link_domains(tmp_path):
+    from scripts import post_review as pr
+    try:
+        pr.set_link_domains(["example.org"])
+        assert pr.neutralize_links("[a](https://example.org/x)") == "[a](https://example.org/x)"
+        assert pr.neutralize_links("[a](https://traefik.io/x)") == "a (`https://traefik.io/x`)"
+    finally:
+        pr.set_link_domains(None)
+    assert pr.neutralize_links("[a](https://traefik.io/x)") == "[a](https://traefik.io/x)"
+    from scripts import profile as profile_mod
+    assert "traefik.io" in profile_mod.load("proxy")["post_link_domains"]
+
+
+def test_images_and_links_with_parentheses_are_neutralized_whole():
+    from scripts import post_review as pr
+    assert pr.neutralize_links("![diagram](../img/a.png)") == "diagram (`../img/a.png`)"
+    assert pr.neutralize_links("![](../img/a.png)") == "image (`../img/a.png`)"
+    out = pr.neutralize_links("See [page](../a_(draft).md) now.")
+    assert out == "See page (`../a_(draft).md`) now."
+    assert pr.neutralize_links('[t](../a.md "Title")') == "t (`../a.md`)"
+
+
+def test_links_inside_inline_code_are_left_alone():
+    from scripts import post_review as pr
+    text = "Write `[text](../a.md)` and see [real](../b.md)."
+    out = pr.neutralize_links(text)
+    assert "`[text](../a.md)`" in out and "real (`../b.md`)" in out
+    assert pr.neutralize_links("``[x](../a.md)`` end") == "``[x](../a.md)`` end"
+
+
+# --- second review round on PR 7 ---
+
+def test_a_link_whose_label_holds_code_is_rewritten_whole():
+    from scripts import post_review as pr
+    out = pr.neutralize_links("Set [`entryPoints`](../entrypoints.md#opt-x) and [a `b` c](./d.md).")
+    assert out == "Set `entryPoints` (`../entrypoints.md#opt-x`) and a `b` c (`./d.md`)."
+    assert "](" not in out
+
+
+def test_code_next_to_a_link_and_a_link_inside_code_are_both_handled():
+    from scripts import post_review as pr
+    out = pr.neutralize_links("Use `[x](../a.md)` or [`y`](../b.md), then `z`.")
+    assert "`[x](../a.md)`" in out and "`y` (`../b.md`)" in out and out.endswith("then `z`.")
+    assert pr.neutralize_links("[`y`](https://traefik.io/p)") == "[`y`](https://traefik.io/p)"
+
+
+def test_a_sha_with_a_trailing_newline_is_refused():
+    from scripts import post_review as pr
+    assert pr.is_full_sha(_SHA) and not pr.is_full_sha(_SHA + "\n") and not pr.is_full_sha(" " + _SHA)
+
+
+def test_context_json_supplies_the_commit_and_commit_overrides_it(tmp_path):
+    ctx = tmp_path / "context.json"
+    ctx.write_text(json.dumps({"head_sha": _SHA}))
+    out = tmp_path / "o.md"
+    assert _run_main(tmp_path, ["--context", str(ctx), "--out", str(out)]) == 0
+    assert "`e75dd61`" in out.read_text()
+    other = "b" * 40
+    assert _run_main(tmp_path, ["--context", str(ctx), "--commit", other, "--out", str(out)]) == 0
+    assert "`bbbbbbb`" in out.read_text()
+
+
+def test_a_context_without_head_sha_fails_with_a_message_that_says_how_to_fix_it(tmp_path, capsys):
+    ctx = tmp_path / "context.json"
+    ctx.write_text(json.dumps({"action": "full-review"}))
+    out = tmp_path / "o.md"
+    assert _run_main(tmp_path, ["--context", str(ctx), "--out", str(out)]) == 2
+    err = capsys.readouterr().err
+    assert not out.exists() and "run Step 1 again" in err and "--commit" in err
+
+
+# --- third review round on PR 7: merged reasoning and impact ---
+
+def test_each_merged_place_keeps_its_own_reasoning_when_they_differ():
+    from scripts import post_review as pr
+    fs = [_style(3, rule="Style guide: Words and Phrases to Avoid", quote="simply do it", fix="do it",
+                 reasoning="`simply` is filler."),
+          _style(9, rule="Style guide: Words and Phrases to Avoid", quote="utilize it", fix="use it",
+                 reasoning="`utilize` is a banned word; write `use`.")]
+    out = pr.render_finding(pr.merge_same_rule(fs)[0])
+    assert "- Line 3: `simply` is filler." in out
+    assert "- Line 9: `utilize` is a banned word; write `use`." in out
+
+
+def test_identical_reasoning_is_shown_once_not_per_line():
+    from scripts import post_review as pr
+    fs = [_style(1, reasoning="Same reason."), _style(2, reasoning="Same reason.")]
+    out = pr.render_finding(pr.merge_same_rule(fs)[0])
+    assert out.count("Same reason.") == 1 and "**What's wrong:** Same reason." in out
+
+
+def test_merged_impact_is_the_most_impactful_of_the_parts():
+    from scripts import post_review as pr
+    fs = [_style(1, impact="low"), _style(2, impact="high")]
+    assert pr.merge_same_rule(fs)[0]["impact"] == "high"
+    fs = [_style(1, impact="high"), _style(2, impact="low")]
+    assert pr.merge_same_rule(fs)[0]["impact"] == "high"
+
+
+# --- fourth review round on PR 7 ---
+
+def test_a_duplicate_run_without_a_commit_still_skips_with_exit_0(monkeypatch, tmp_path, capsys):
+    from scripts import post_review as pr
+    monkeypatch.setattr(pr, "has_existing_comment", lambda *a, **k: True)
+    monkeypatch.setattr(pr, "post_comment", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not post")))
+    assert _run_main(tmp_path, []) == 0
+    assert "skipping" in capsys.readouterr().out
+
+
+def test_out_and_dry_run_never_check_for_an_existing_comment(monkeypatch, tmp_path):
+    from scripts import post_review as pr
+    monkeypatch.setattr(pr, "has_existing_comment", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no marker check")))
+    assert _run_main(tmp_path, ["--commit", _SHA, "--out", str(tmp_path / "o.md")]) == 0
+    assert _run_main(tmp_path, ["--dry-run"]) == 0
+
+
+def test_padded_angle_bracket_and_nested_bracket_links_are_rewritten():
+    from scripts import post_review as pr
+    assert pr.neutralize_links("[a](  ../x.md )") == "a (`../x.md`)"
+    assert pr.neutralize_links("[a](<../x y.md>)") == "a (`../x y.md`)"
+    assert pr.neutralize_links("[a [b] c](../x.md)") == "a [b] c (`../x.md`)"
+    assert pr.neutralize_links("[a](https://traefik.io/x)") == "[a](https://traefik.io/x)"
+    assert pr.neutralize_links("[a](  https://traefik.io/x )").startswith("[a](")
+
+
+def test_rules_that_differ_only_in_case_spacing_or_punctuation_merge():
+    from scripts import post_review as pr
+    fs = [_style(1, rule="Style guide: Clarity Rules"), _style(2, rule="Style guide:  Clarity rules."),
+          _style(3, rule="Style guide: Voice")]
+    merged = pr.merge_same_rule(fs)
+    assert len(merged) == 2
+    assert len([m for m in merged if m["line"] == 1][0]["occurrences"]) == 1

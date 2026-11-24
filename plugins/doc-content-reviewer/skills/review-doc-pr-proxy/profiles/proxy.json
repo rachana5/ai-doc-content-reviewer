@@ -116,5 +116,10 @@
     "style",
     "clarity"
   ],
-  "engine_link_mode": "mkdocs"
+  "engine_link_mode": "mkdocs",
+  "post_link_domains": [
+    "github.com",
+    "traefik.io",
+    "*.traefik.io"
+  ]
 }
